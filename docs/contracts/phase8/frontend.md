@@ -5,7 +5,7 @@ Author: FerrisMind
 ## Input Contract
 - Frontend consumes `GenerationRequest` and normalizes all list-shaped fields to batch size.
 - `voice_clone_prompts` override raw `ref_audios/ref_texts` for prompt construction.
-- Language and instruct normalization are derived from `refs/OmniVoice` only.
+- Language and instruct normalization are derived from the official OmniVoice upstream implementation only.
 
 ## Output Contract
 - Frontend produces `GenerationTask` and per-item `PreparedPrompt`.

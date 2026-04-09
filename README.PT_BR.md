@@ -81,7 +81,7 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 - Para CUDA: GPU NVIDIA e driver/toolkit compatível
 - Para Metal: macOS com suporte a Metal
 - Pesos locais do modelo em `model/`
-- Referências locais em `refs/`
+- Materiais oficiais de referência upstream disponíveis localmente
 
 ### Desenvolvimento
 
@@ -103,7 +103,7 @@ cargo test -p omnivoice-cli --features cuda --test phase10_cli_cuda -- --nocaptu
 ## 📖 Como Começar a Usar
 
 1. Coloque os assets reais do modelo em `model/`.
-2. Mantenha os repositórios de referência oficiais em `refs/` para verificação de comportamento.
+2. Mantenha os materiais oficiais de referência upstream disponíveis localmente para verificação de comportamento.
 3. Execute os testes de GPU de forma sequencial, não todos ao mesmo tempo.
 4. Use `omnivoice-cli infer` para síntese end-to-end.
 
@@ -123,7 +123,9 @@ Este workspace é construído sobre projetos upstream oficiais:
 - [candle](https://github.com/huggingface/candle)
 - [mistral.rs](https://github.com/EricLBuehler/mistral.rs)
 
-O diretório local `refs/` é usado como fonte de verdade de comportamento e referência de engenharia, mas não faz parte do controle de versão.
+Os projetos upstream oficiais continuam sendo a fonte de verdade para comportamento e referência de engenharia, mas não são versionados como parte deste repositório.
+
+Veja [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) para a atribuição focada dos principais projetos upstream relevantes para este workspace.
 
 ## 📄 Licença
 
