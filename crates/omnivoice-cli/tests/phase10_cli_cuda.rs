@@ -58,6 +58,8 @@ fn phase10_cli_prepare_prompt_cuda_smoke() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("phase_marker=omnivoice-phase10"));
     assert!(stdout.contains("command=prepare-prompt"));
+    assert!(stdout.contains("stage0_loaded=false"));
+    assert!(stdout.contains("stage1_loaded=false"));
 }
 
 #[test]
@@ -95,6 +97,7 @@ fn phase10_cli_stage1_decode_cuda_smoke() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("phase_marker=omnivoice-phase10"));
     assert!(stdout.contains("command=stage1-decode"));
+    assert!(stdout.contains("stage1_loaded=true"));
 }
 
 #[test]
@@ -130,6 +133,8 @@ fn phase10_cli_stage0_debug_cuda_smoke() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("phase_marker=omnivoice-phase10"));
     assert!(stdout.contains("command=stage0-debug"));
+    assert!(stdout.contains("stage0_loaded=true"));
+    assert!(stdout.contains("stage1_loaded=false"));
 }
 
 #[test]
@@ -237,6 +242,38 @@ fn phase10_cli_infer_cuda_auto_device_dtype_succeeds() {
     assert!(stdout.contains("dtype=Auto"));
 
     let actual = DecodedAudio::read_wav(&output_path).unwrap();
-    assert_eq!(actual.sample_rate, 24_000);
-    assert!(!actual.samples.is_empty());
+    let expected = case.load_final_audio().unwrap();
+    assert_audio_matches_reference_with_frame_tolerance(
+        &actual, &expected, 20_000, 3.0e-2, 5.0e-2, 0.55,
+    );
+}
+
+fn assert_audio_matches_reference_with_frame_tolerance(
+    actual: &DecodedAudio,
+    expected: &DecodedAudio,
+    max_frame_delta: usize,
+    mae_limit: f32,
+    rmse_limit: f32,
+    max_abs_limit: f32,
+) {
+    assert_eq!(actual.sample_rate, expected.sample_rate);
+    let frame_delta = actual.frame_count().abs_diff(expected.frame_count());
+    assert!(
+        frame_delta <= max_frame_delta,
+        "frame delta {} exceeds {} (actual={}, reference={})",
+        frame_delta,
+        max_frame_delta,
+        actual.frame_count(),
+        expected.frame_count()
+    );
+    let compare_len = actual.frame_count().min(expected.frame_count());
+    let actual = DecodedAudio::new(actual.samples[..compare_len].to_vec(), actual.sample_rate);
+    let expected = DecodedAudio::new(
+        expected.samples[..compare_len].to_vec(),
+        expected.sample_rate,
+    );
+    let metrics = actual.parity_metrics(&expected).unwrap();
+    assert!(metrics.mae < mae_limit, "{metrics:?}");
+    assert!(metrics.rmse < rmse_limit, "{metrics:?}");
+    assert!(metrics.max_abs < max_abs_limit, "{metrics:?}");
 }

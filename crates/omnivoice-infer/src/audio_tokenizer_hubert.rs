@@ -22,44 +22,19 @@ impl HubertModel {
         })
     }
 
-    pub(crate) fn extract_semantic_features(
+    pub(crate) fn extract_semantic_features_from_resampled(
         &self,
-        waveform: &Tensor,
-        input_sample_rate: u32,
-        semantic_sample_rate: u32,
+        resampled: &Tensor,
         semantic_downsample_factor: usize,
     ) -> Result<Tensor> {
-        let resampled = if input_sample_rate != semantic_sample_rate {
-            let cpu = waveform
-                .i((.., 0, ..))?
-                .to_device(&candle_core::Device::Cpu)?;
-            let batch = cpu.to_vec2::<f32>()?;
-            let mut all = Vec::new();
-            let mut frame_len = 0;
-            for samples in batch {
-                let resampled = crate::audio_input::resample_linear(
-                    &samples,
-                    input_sample_rate,
-                    semantic_sample_rate,
-                );
-                frame_len = resampled.len();
-                all.extend(resampled);
-            }
-            Tensor::from_vec(all, (waveform.dim(0)?, frame_len), waveform.device())?
-        } else {
-            waveform.i((.., 0, ..))?
-        };
         let padded = resampled.pad_with_zeros(candle_core::D::Minus1, 160, 160)?;
         let extract_features = self.feature_extractor.forward(&padded)?;
         let extract_features = extract_features.transpose(1, 2)?;
         let hidden_states = self.feature_projection.forward(&extract_features)?;
-        let all_hidden_states = self.encoder.forward_hidden_states(&hidden_states)?;
-        let refs = all_hidden_states.iter().collect::<Vec<_>>();
-        let stacked = Tensor::stack(&refs, 1)?;
-        let mut semantic_features = stacked.mean(1)?;
+        let mut semantic_features = self.encoder.forward_hidden_mean(&hidden_states)?;
         if semantic_downsample_factor > 1 {
             let seq_len = semantic_features.dim(1)?;
-            let mut pieces = Vec::new();
+            let mut pieces = Vec::with_capacity(seq_len.div_ceil(semantic_downsample_factor));
             let mut index = 0;
             while index < seq_len {
                 pieces.push(semantic_features.i((.., index..index + 1, ..))?);
@@ -213,17 +188,18 @@ impl HubertEncoder {
         })
     }
 
-    fn forward_hidden_states(&self, hidden_states: &Tensor) -> Result<Vec<Tensor>> {
+    fn forward_hidden_mean(&self, hidden_states: &Tensor) -> Result<Tensor> {
         let position_embeddings = self.pos_conv_embed.forward(hidden_states)?;
         let mut hidden_states = hidden_states.broadcast_add(&position_embeddings)?;
         hidden_states = self.layer_norm.forward(&hidden_states)?;
-        let mut all_hidden_states = Vec::with_capacity(self.layers.len() + 1);
+        let mut hidden_sum = hidden_states.clone();
+        let mut hidden_count = 1usize;
         for layer in &self.layers {
-            all_hidden_states.push(hidden_states.clone());
             hidden_states = layer.forward(&hidden_states)?;
+            hidden_sum = hidden_sum.broadcast_add(&hidden_states)?;
+            hidden_count += 1;
         }
-        all_hidden_states.push(hidden_states);
-        Ok(all_hidden_states)
+        (hidden_sum / hidden_count as f64).map_err(Into::into)
     }
 }
 

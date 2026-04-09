@@ -5,7 +5,9 @@ mod support;
 use candle_core::DType;
 use omnivoice_infer::{
     artifacts::ReferenceArtifactBundle,
-    contracts::{GenerationRequest, ReferenceAudioInput, VoiceClonePrompt},
+    contracts::{
+        DecodedAudio, GenerationRequest, ReferenceAudioInput, VoiceClonePrompt, WaveformInput,
+    },
     gpu_lock::acquire_gpu_test_lock,
     pipeline::Phase3Pipeline,
     runtime::{DTypeSpec, DeviceSpec, RuntimeOptions},
@@ -71,27 +73,34 @@ fn phase10_cuda_design_matches_reference_audio() {
 #[test]
 fn phase10_cuda_clone_with_asr_succeeds() {
     let _guard = acquire_gpu_test_lock().unwrap();
-    let bundle = ReferenceArtifactBundle::from_root(reference_root()).unwrap();
-    let case = bundle.case_by_id("clone_user_ref").unwrap();
-    let definition = case.load_case_definition().unwrap();
-    let mut request = GenerationRequest::new_text_only(definition.request.texts[0].clone());
-    request.languages = definition.request.languages.clone();
-    request.ref_audios = vec![Some(ReferenceAudioInput::from_path(
-        ref_audio_path().display().to_string(),
-    ))];
-    request.ref_texts = vec![None];
-    request.generation_config = definition.request.generation_config.clone();
-    let actual = cuda_f32_pipeline().generate(&request).unwrap();
-    assert_eq!(actual.len(), 1);
-    assert_eq!(actual[0].sample_rate, 24_000);
-    assert!(!actual[0].samples.is_empty());
+    let pipeline = cuda_f32_pipeline();
+    let (reference_tokens, reference_text) = live_oracle_clone_prompt();
+    let prompt = pipeline
+        .create_voice_clone_prompt_from_audio(
+            &ReferenceAudioInput::from_path(ref_audio_path().display().to_string()),
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+    assert_eq!(prompt.ref_audio_tokens.dims(), reference_tokens.dims());
+    assert_eq!(
+        prompt.ref_text.replace(',', ""),
+        reference_text.replace(',', "")
+    );
+    assert!(prompt
+        .ref_audio_tokens
+        .data
+        .iter()
+        .all(|token| (0..=1023).contains(token)));
 }
 
 #[test]
-fn phase10_cuda_clone_with_prebuilt_prompt_succeeds() {
+fn phase10_cuda_clone_with_prebuilt_prompt_matches_reference_audio() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let bundle = ReferenceArtifactBundle::from_root(reference_root()).unwrap();
     let case = bundle.case_by_id("clone_user_ref").unwrap();
+    let pipeline = cuda_f32_pipeline();
     let mut request = case.build_generation_request().unwrap();
     let (reference_tokens, reference_text) = live_oracle_clone_prompt();
     request.ref_audios = vec![None];
@@ -101,23 +110,44 @@ fn phase10_cuda_clone_with_prebuilt_prompt_succeeds() {
         ref_text: reference_text,
         ref_rms: Some(0.1),
     })];
-    let actual = cuda_f32_pipeline().generate(&request).unwrap();
-    assert_eq!(actual.len(), 1);
-    assert_eq!(actual[0].sample_rate, 24_000);
-    assert!(!actual[0].samples.is_empty());
+    let expected_request = case.build_generation_request().unwrap();
+    assert_eq!(
+        pipeline.generate_tokens(&request).unwrap(),
+        pipeline.generate_tokens(&expected_request).unwrap()
+    );
 }
 
 #[test]
-fn phase10_cuda_long_form_auto_succeeds() {
+fn phase10_cuda_clone_with_user_ref_text_does_not_trim_long_reference_audio() {
+    let _guard = acquire_gpu_test_lock().unwrap();
+    let reference = DecodedAudio::read_wav(ref_audio_path()).unwrap();
+    let repeated = reference.samples.repeat(6);
+    let prompt = cuda_f32_pipeline()
+        .create_voice_clone_prompt_from_audio(
+            &ReferenceAudioInput::Waveform(WaveformInput::mono(repeated, reference.sample_rate)),
+            Some("State-of-the-art text-to-speech model for 600+ languages, supporting"),
+            true,
+            None,
+        )
+        .unwrap();
+    assert!(
+        prompt.ref_audio_tokens.dims().1 > 375,
+        "reference prompt was unexpectedly trimmed to {} frames",
+        prompt.ref_audio_tokens.dims().1
+    );
+}
+
+#[test]
+fn phase10_cuda_long_form_auto_matches_reference_audio() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
     let case = bundle.case_by_id("det_auto_long_chunked").unwrap();
     let request = case.build_generation_request().unwrap();
     let actual = cuda_f32_pipeline().generate(&request).unwrap();
-    assert_eq!(actual.len(), 1);
-    assert_eq!(actual[0].sample_rate, 24_000);
-    assert!(actual[0].frame_count() > 240_000);
-    assert!(!actual[0].samples.is_empty());
+    let expected = case.load_final_audio().unwrap();
+    assert_audio_matches_reference_with_frame_tolerance(
+        &actual[0], &expected, 1_200, 6.0e-3, 3.0e-2, 0.7,
+    );
 }
 
 #[test]
@@ -126,28 +156,65 @@ fn phase10_cuda_batch_request_preserves_order() {
     let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
     let auto_case = bundle.case_by_id("det_auto_en_short").unwrap();
     let auto_request = auto_case.build_generation_request().unwrap();
+    let mut long_request = auto_case.build_generation_request().unwrap();
+    long_request.durations = vec![Some(31.0)];
+    let pipeline = cuda_f32_pipeline();
     let mut request = GenerationRequest::new_text_only(auto_request.texts[0].clone());
-    request.texts = vec![auto_request.texts[0].clone(), auto_request.texts[0].clone()];
+    request.texts = vec![auto_request.texts[0].clone(), long_request.texts[0].clone()];
     request.languages = vec![
         auto_request.languages[0].clone(),
-        auto_request.languages[0].clone(),
+        long_request.languages[0].clone(),
     ];
     request.instructs = vec![
         auto_request.instructs[0].clone(),
-        auto_request.instructs[0].clone(),
+        long_request.instructs[0].clone(),
     ];
     request.ref_texts = vec![None, None];
     request.ref_audios = vec![None, None];
     request.voice_clone_prompts = vec![None, None];
-    request.speeds = vec![auto_request.speeds[0], auto_request.speeds[0]];
-    request.durations = vec![auto_request.durations[0], auto_request.durations[0]];
+    request.speeds = vec![auto_request.speeds[0], long_request.speeds[0]];
+    request.durations = vec![auto_request.durations[0], long_request.durations[0]];
     request.generation_config = auto_request.generation_config.clone();
-    let actual = cuda_f32_pipeline().generate(&request).unwrap();
-    assert_eq!(actual.len(), 2);
-    assert_eq!(actual[0].sample_rate, 24_000);
-    assert_eq!(actual[1].sample_rate, 24_000);
-    assert!(!actual[0].samples.is_empty());
-    assert!(!actual[1].samples.is_empty());
+    let actual = pipeline.generate(&request).unwrap();
+    let expected_auto = pipeline.generate(&auto_request).unwrap();
+    let expected_long = pipeline.generate(&long_request).unwrap();
+    assert_audio_matches_reference_with_frame_tolerance(
+        &actual[0],
+        &expected_auto[0],
+        480,
+        5.0e-4,
+        8.0e-4,
+        0.05,
+    );
+    assert_audio_matches_reference_with_frame_tolerance(
+        &actual[1],
+        &expected_long[0],
+        1_200,
+        6.0e-3,
+        3.0e-2,
+        0.7,
+    );
+}
+
+#[test]
+fn phase10_cuda_stage0_only_paths_do_not_eager_load_stage1() {
+    let _guard = acquire_gpu_test_lock().unwrap();
+    let pipeline = cuda_f32_pipeline();
+    assert!(!pipeline.stage0().is_loaded());
+    assert!(!pipeline.stage1().is_loaded());
+
+    let bundle = ReferenceArtifactBundle::from_root(reference_root()).unwrap();
+    let case = bundle.case_by_id("debug_auto_en_short").unwrap();
+    let request = case.build_generation_request().unwrap();
+    let _prepared = pipeline.prepare_prompt(&request).unwrap();
+    assert!(!pipeline.stage0().is_loaded());
+    assert!(!pipeline.stage1().is_loaded());
+
+    let _generated = pipeline
+        .generate_stage0_from_reference_case(deterministic_reference_root(), "det_auto_en_short")
+        .unwrap();
+    assert!(pipeline.stage0().is_loaded());
+    assert!(!pipeline.stage1().is_loaded());
 }
 
 #[test]
@@ -161,8 +228,8 @@ fn phase10_cuda_auto_device_dtype_prioritize_gpu() {
     let case = bundle.case_by_id("det_auto_en_short").unwrap();
     let request = case.build_generation_request().unwrap();
     let actual = pipeline.generate(&request).unwrap();
-
-    assert_eq!(actual.len(), 1);
-    assert_eq!(actual[0].sample_rate, 24_000);
-    assert!(!actual[0].samples.is_empty());
+    let expected = case.load_final_audio().unwrap();
+    assert_audio_matches_reference_with_frame_tolerance(
+        &actual[0], &expected, 20_000, 3.0e-2, 5.0e-2, 0.55,
+    );
 }

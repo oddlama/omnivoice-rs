@@ -924,6 +924,8 @@ fn run_prepare_prompt(
     println!("device={:?}", options.device());
     println!("dtype={:?}", options.dtype());
     println!("kind={}", prepared.kind());
+    println!("stage0_loaded={}", pipeline.stage0().is_loaded());
+    println!("stage1_loaded={}", pipeline.stage1().is_loaded());
 
     match prepared {
         PreparedPromptSequence::Single(_) => {
@@ -1002,6 +1004,8 @@ fn run_stage1_prepare(
             .unwrap_or_else(|| "<none>".to_string())
     );
     println!("runtime_dtype={:?}", decode.runtime_dtype);
+    println!("stage0_loaded={}", pipeline.stage0().is_loaded());
+    println!("stage1_loaded={}", pipeline.stage1().is_loaded());
 
     Ok(())
 }
@@ -1054,6 +1058,8 @@ fn run_stage1_decode(
     println!("max_abs={}", metrics.max_abs);
     println!("mae={}", metrics.mae);
     println!("rmse={}", metrics.rmse);
+    println!("stage0_loaded={}", pipeline.stage0().is_loaded());
+    println!("stage1_loaded={}", pipeline.stage1().is_loaded());
 
     Ok(())
 }
@@ -1091,6 +1097,8 @@ fn run_stage0_generate(
     println!("device={:?}", options.device());
     println!("dtype={:?}", options.dtype());
     println!("out={}", out.display());
+    println!("stage0_loaded={}", pipeline.stage0().is_loaded());
+    println!("stage1_loaded={}", pipeline.stage1().is_loaded());
     match tokens {
         GeneratedTokens::Single(tokens) => {
             println!("kind=single");
@@ -1127,6 +1135,8 @@ fn run_stage0_debug(
     println!("device={:?}", options.device());
     println!("dtype={:?}", options.dtype());
     println!("token_dims={:?}", debug.tokens.dims());
+    println!("stage0_loaded={}", pipeline.stage0().is_loaded());
+    println!("stage1_loaded={}", pipeline.stage1().is_loaded());
     for (name, metric) in &debug.parity_metrics.metrics {
         println!(
             "metric.{name}=exact:{} max_abs:{} mae:{} rmse:{}",

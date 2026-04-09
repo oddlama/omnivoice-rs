@@ -128,6 +128,12 @@ pub struct Stage0GenerationOutput {
     pub debug_capture: Option<Stage0DebugCapture>,
 }
 
+#[derive(Debug)]
+struct Stage0DeviceGenerationOutput {
+    tokens: Vec<Tensor>,
+    debug_capture: Option<Stage0DebugCapture>,
+}
+
 fn default_hidden_act() -> String {
     "silu".to_string()
 }
@@ -316,6 +322,14 @@ impl Stage0RuntimePlan {
         self.run_loop(prepared, config, capture_steps)
     }
 
+    pub fn generate_deterministic_device(
+        &self,
+        prepared: &PreparedInferenceBatch,
+        config: &Stage0DeterministicConfig,
+    ) -> Result<Vec<Tensor>> {
+        Ok(self.run_loop_device(prepared, config, &[])?.tokens)
+    }
+
     pub fn debug_case(
         &self,
         prepared: &PreparedInferenceBatch,
@@ -350,6 +364,10 @@ impl Stage0RuntimePlan {
         self.runtime_dtype
     }
 
+    pub fn is_loaded(&self) -> bool {
+        self.model.get().is_some()
+    }
+
     fn model(&self) -> Result<&Stage0Model> {
         let result = self.model.get_or_init(|| {
             Stage0Model::load(
@@ -372,6 +390,23 @@ impl Stage0RuntimePlan {
         config: &Stage0DeterministicConfig,
         capture_steps: &[usize],
     ) -> Result<Stage0GenerationOutput> {
+        let output = self.run_loop_device(prepared, config, capture_steps)?;
+        Ok(Stage0GenerationOutput {
+            tokens: output
+                .tokens
+                .iter()
+                .map(tensor_to_i64_tensor2)
+                .collect::<Result<Vec<_>>>()?,
+            debug_capture: output.debug_capture,
+        })
+    }
+
+    fn run_loop_device(
+        &self,
+        prepared: &PreparedInferenceBatch,
+        config: &Stage0DeterministicConfig,
+        capture_steps: &[usize],
+    ) -> Result<Stage0DeviceGenerationOutput> {
         if let Some(seed) = self.options.seed() {
             self.device.set_seed(seed)?;
         }
@@ -512,11 +547,7 @@ impl Stage0RuntimePlan {
 
         let mut final_tokens = Vec::with_capacity(batch_size);
         for (batch_index, target_len) in prepared.target_lens.iter().copied().enumerate() {
-            final_tokens.push(tensor_to_i64_tensor2(&tokens.i((
-                batch_index,
-                ..,
-                0..target_len,
-            ))?)?);
+            final_tokens.push(tokens.i((batch_index, .., 0..target_len))?);
         }
 
         let debug_capture = if !debug_enabled {
@@ -532,14 +563,15 @@ impl Stage0RuntimePlan {
                 hidden_layers,
                 final_hidden: tensor_to_f32_tensor3(&initial_forward.backbone.final_hidden)?,
                 steps: step_captures,
-                final_tokens: final_tokens
-                    .first()
-                    .cloned()
-                    .expect("debug capture requires one prompt"),
+                final_tokens: tensor_to_i64_tensor2(
+                    final_tokens
+                        .first()
+                        .expect("debug capture requires one prompt"),
+                )?,
             })
         };
 
-        Ok(Stage0GenerationOutput {
+        Ok(Stage0DeviceGenerationOutput {
             tokens: final_tokens,
             debug_capture,
         })
@@ -1028,7 +1060,7 @@ fn tensor_to_i64_tensor3(tensor: &Tensor) -> Result<I64Tensor3> {
     I64Tensor3::new(dims, data)
 }
 
-fn tensor_to_i64_tensor2(tensor: &Tensor) -> Result<I64Tensor2> {
+pub(crate) fn tensor_to_i64_tensor2(tensor: &Tensor) -> Result<I64Tensor2> {
     let dims = tensor.dims2()?;
     let data = tensor
         .to_device(&Device::Cpu)?

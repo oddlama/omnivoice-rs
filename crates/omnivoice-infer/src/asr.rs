@@ -10,14 +10,8 @@ use tokenizers::Tokenizer;
 use crate::error::{OmniVoiceError, Result};
 
 const DEFAULT_LOCAL_ASR_MODEL: &str = "H:/omnivoice/model/whisper";
-const MEL_FILTERS_80: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../refs/candle/candle-examples/examples/whisper/melfilters.bytes"
-));
-const MEL_FILTERS_128: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../refs/candle/candle-examples/examples/whisper/melfilters128.bytes"
-));
+const MEL_FILTERS_80: &[u8] = include_bytes!("../../../tools/whisper/melfilters.bytes");
+const MEL_FILTERS_128: &[u8] = include_bytes!("../../../tools/whisper/melfilters128.bytes");
 
 #[derive(Debug)]
 enum WhisperBackend {

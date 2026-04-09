@@ -1,5 +1,7 @@
 use std::sync::Mutex;
 
+use candle_core::Tensor;
+
 use crate::{
     artifacts::{ReferenceArtifactBundle, RuntimeArtifacts},
     asr::WhisperAsr,
@@ -18,6 +20,12 @@ use crate::{
     stage0_model::{Stage0DebugRun, Stage0DeterministicConfig, Stage0RuntimePlan},
     stage1_decoder::{PreparedStage1Decode, Stage1DebugRun, Stage1RuntimePlan},
 };
+
+#[derive(Clone)]
+enum GeneratedTensorTokens {
+    Single(Tensor),
+    Chunked(Vec<Tensor>),
+}
 
 #[derive(Debug)]
 pub struct Phase3Pipeline {
@@ -110,21 +118,23 @@ impl Phase3Pipeline {
             self.runtime_artifacts.contracts().sample_rate,
             self.runtime_artifacts.contracts().hop_length,
         );
-        let prepared = processor.prepare_prompt_audio(ref_audio, None, preprocess_prompt)?;
-        let resolved_ref_text = match ref_text {
-            Some(ref_text) => ref_text.to_string(),
-            None => self.transcribe_waveform(
-                &WaveformInput::mono(
-                    prepared.waveform.clone(),
-                    self.runtime_artifacts.contracts().sample_rate,
-                ),
-                asr_model,
-            )?,
-        };
-        let resolved_ref_text = if preprocess_prompt {
-            add_punctuation(&resolved_ref_text)
-        } else {
-            resolved_ref_text
+        let prepared = processor.prepare_prompt_audio(ref_audio, ref_text, preprocess_prompt)?;
+        let resolved_ref_text = match prepared.ref_text {
+            Some(ref_text) => ref_text,
+            None => {
+                let resolved_ref_text = self.transcribe_waveform(
+                    &WaveformInput::mono(
+                        prepared.waveform.clone(),
+                        self.runtime_artifacts.contracts().sample_rate,
+                    ),
+                    asr_model,
+                )?;
+                if preprocess_prompt {
+                    add_punctuation(&resolved_ref_text)
+                } else {
+                    resolved_ref_text
+                }
+            }
         };
         let tokens = self.audio_tokenizer.encode_waveform(
             &prepared.waveform,
@@ -163,18 +173,7 @@ impl Phase3Pipeline {
     pub fn generate(&self, request: &GenerationRequest) -> Result<Vec<DecodedAudio>> {
         let request = self.materialize_request(request)?;
         let task = self.frontend.build_task(&request)?;
-        let generated = self.generate_tokens_from_task(&task)?;
-        generated
-            .iter()
-            .enumerate()
-            .map(|(index, tokens)| {
-                self.stage1.decode_final(
-                    tokens,
-                    task.ref_rms[index],
-                    task.generation_config.postprocess_output,
-                )
-            })
-            .collect()
+        self.generate_audio_from_task(&task)
     }
 
     pub fn generate_stage0_from_reference_case(
@@ -404,6 +403,52 @@ impl Phase3Pipeline {
             .collect()
     }
 
+    fn generate_audio_from_task(
+        &self,
+        task: &crate::contracts::GenerationTask,
+    ) -> Result<Vec<DecodedAudio>> {
+        let mut results = vec![None; task.batch_size()];
+        let (short_idx, long_idx) = task.get_indices(self.frontend.frame_rate());
+        if !short_idx.is_empty() {
+            let short_task = task.slice_task(&short_idx);
+            let short_results = self.generate_iterative_task_device(&short_task)?;
+            for (slot, generated) in short_idx.into_iter().zip(short_results) {
+                results[slot] = Some(GeneratedTensorTokens::Single(generated));
+            }
+        }
+        if !long_idx.is_empty() {
+            let long_task = task.slice_task(&long_idx);
+            let long_results = self.generate_chunked_task_device(&long_task)?;
+            for (slot, generated) in long_idx.into_iter().zip(long_results) {
+                results[slot] = Some(GeneratedTensorTokens::Chunked(generated));
+            }
+        }
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(index, result)| {
+                match result.ok_or_else(|| {
+                    crate::error::OmniVoiceError::InvalidData(
+                        "live generation did not produce a result for one of the items".to_string(),
+                    )
+                })? {
+                    GeneratedTensorTokens::Single(tokens) => self.stage1.decode_final_tensor(
+                        &tokens,
+                        task.ref_rms[index],
+                        task.generation_config.postprocess_output,
+                    ),
+                    GeneratedTensorTokens::Chunked(chunks) => {
+                        self.stage1.decode_final_tensor_chunks(
+                            &chunks,
+                            task.ref_rms[index],
+                            task.generation_config.postprocess_output,
+                        )
+                    }
+                }
+            })
+            .collect()
+    }
+
     fn generate_iterative_task(
         &self,
         task: &crate::contracts::GenerationTask,
@@ -435,6 +480,37 @@ impl Phase3Pipeline {
             &[],
         )?;
         Ok(generation.tokens)
+    }
+
+    fn generate_iterative_task_device(
+        &self,
+        task: &crate::contracts::GenerationTask,
+    ) -> Result<Vec<Tensor>> {
+        let mut prepared = Vec::with_capacity(task.batch_size());
+        let mut cond_lens = Vec::with_capacity(task.batch_size());
+        for index in 0..task.batch_size() {
+            let prompt = self.frontend.prepare_prompt(task, index)?;
+            cond_lens.push(prompt.total_length);
+            prepared.push(prompt);
+        }
+        let batched = pack_cfg_batch(&prepared, task.target_lens())?;
+        let batch = self
+            .stage0
+            .prepare_batch(&batched, &cond_lens, task.target_lens())?;
+        self.stage0.generate_deterministic_device(
+            &batch,
+            &Stage0DeterministicConfig {
+                num_step: task.generation_config.num_step,
+                guidance_scale: task.generation_config.guidance_scale,
+                t_shift: task.generation_config.t_shift,
+                layer_penalty_factor: task.generation_config.layer_penalty_factor,
+                position_temperature: task.generation_config.position_temperature,
+                class_temperature: task.generation_config.class_temperature,
+                capture_steps: Vec::new(),
+                capture_layers: Vec::new(),
+                capture_final_hidden: false,
+            },
+        )
     }
 
     fn generate_chunked_task(
@@ -472,7 +548,7 @@ impl Phase3Pipeline {
                 if indices.is_empty() {
                     continue;
                 }
-                self.run_chunk_batch(
+                let generated = self.run_chunk_batch(
                     task,
                     &indices,
                     indices
@@ -487,15 +563,19 @@ impl Phase3Pipeline {
                         .iter()
                         .map(|index| task.ref_texts[*index].clone())
                         .collect(),
-                    &mut chunk_results,
                 )?;
+                for (item_index, generated) in indices.iter().copied().zip(generated) {
+                    chunk_results[item_index].push(generated);
+                }
             }
         } else {
             let first_indices = (0..task.batch_size())
                 .filter(|item_index| !all_chunks[*item_index].is_empty())
                 .collect::<Vec<_>>();
+            let mut first_chunk_refs = vec![None; task.batch_size()];
+            let mut first_chunk_texts = vec![None; task.batch_size()];
             if !first_indices.is_empty() {
-                self.run_chunk_batch(
+                let generated = self.run_chunk_batch(
                     task,
                     &first_indices,
                     first_indices
@@ -504,8 +584,12 @@ impl Phase3Pipeline {
                         .collect(),
                     vec![None; first_indices.len()],
                     vec![None; first_indices.len()],
-                    &mut chunk_results,
                 )?;
+                for (item_index, generated) in first_indices.iter().copied().zip(generated) {
+                    first_chunk_refs[item_index] = Some(generated.clone());
+                    first_chunk_texts[item_index] = Some(all_chunks[item_index][0].clone());
+                    chunk_results[item_index].push(generated);
+                }
             }
             for chunk_index in 1..max_chunks {
                 let indices = (0..task.batch_size())
@@ -514,24 +598,41 @@ impl Phase3Pipeline {
                 if indices.is_empty() {
                     continue;
                 }
-                let first_chunk_refs = indices
+                let ref_audio_tokens = indices
                     .iter()
-                    .map(|index| Some(chunk_results[*index][0].clone()))
-                    .collect::<Vec<_>>();
-                self.run_chunk_batch(
+                    .map(|index| {
+                        Ok(Some(first_chunk_refs[*index].clone().ok_or_else(|| {
+                            crate::error::OmniVoiceError::InvalidData(
+                                "missing cached first chunk reference tokens".to_string(),
+                            )
+                        })?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let ref_texts = indices
+                    .iter()
+                    .map(|index| {
+                        Ok(Some(first_chunk_texts[*index].clone().ok_or_else(
+                            || {
+                                crate::error::OmniVoiceError::InvalidData(
+                                    "missing cached first chunk reference text".to_string(),
+                                )
+                            },
+                        )?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let generated = self.run_chunk_batch(
                     task,
                     &indices,
                     indices
                         .iter()
                         .map(|index| all_chunks[*index][chunk_index].clone())
                         .collect(),
-                    first_chunk_refs,
-                    indices
-                        .iter()
-                        .map(|index| Some(all_chunks[*index][0].clone()))
-                        .collect(),
-                    &mut chunk_results,
+                    ref_audio_tokens,
+                    ref_texts,
                 )?;
+                for (item_index, generated) in indices.iter().copied().zip(generated) {
+                    chunk_results[item_index].push(generated);
+                }
             }
         }
         Ok(chunk_results)
@@ -544,8 +645,7 @@ impl Phase3Pipeline {
         texts: Vec<String>,
         ref_audio_tokens: Vec<Option<crate::contracts::I64Tensor2>>,
         ref_texts: Vec<Option<String>>,
-        chunk_results: &mut [Vec<crate::contracts::I64Tensor2>],
-    ) -> Result<()> {
+    ) -> Result<Vec<crate::contracts::I64Tensor2>> {
         let target_lens = indices
             .iter()
             .enumerate()
@@ -577,11 +677,177 @@ impl Phase3Pipeline {
             speed: indices.iter().map(|index| task.speed[*index]).collect(),
             generation_config: task.generation_config.clone(),
         };
-        let generated = self.generate_iterative_task(&sub_task)?;
-        for (local_index, item_index) in indices.iter().copied().enumerate() {
-            chunk_results[item_index].push(generated[local_index].clone());
+        self.generate_iterative_task(&sub_task)
+    }
+
+    fn generate_chunked_task_device(
+        &self,
+        task: &crate::contracts::GenerationTask,
+    ) -> Result<Vec<Vec<Tensor>>> {
+        let all_chunks = (0..task.batch_size())
+            .map(|index| {
+                Ok(self.frontend.chunk_text(
+                    &task.texts[index],
+                    task.target_lens[index],
+                    task.generation_config.audio_chunk_duration,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let has_ref = task
+            .ref_audio_tokens
+            .iter()
+            .map(Option::is_some)
+            .collect::<Vec<_>>();
+        if has_ref.iter().any(|value| *value) && has_ref.iter().any(|value| !*value) {
+            return Err(crate::error::OmniVoiceError::InvalidRequest(
+                "chunked inference requires all items to either have or not have reference audio"
+                    .to_string(),
+            ));
         }
-        Ok(())
+        let max_chunks = all_chunks.iter().map(Vec::len).max().unwrap_or(0);
+        let mut chunk_results = (0..task.batch_size())
+            .map(|_| Vec::new())
+            .collect::<Vec<Vec<Tensor>>>();
+
+        if has_ref.iter().all(|value| *value) {
+            for chunk_index in 0..max_chunks {
+                let indices = (0..task.batch_size())
+                    .filter(|item_index| chunk_index < all_chunks[*item_index].len())
+                    .collect::<Vec<_>>();
+                if indices.is_empty() {
+                    continue;
+                }
+                let generated = self.run_chunk_batch_device(
+                    task,
+                    &indices,
+                    indices
+                        .iter()
+                        .map(|index| all_chunks[*index][chunk_index].clone())
+                        .collect(),
+                    indices
+                        .iter()
+                        .map(|index| task.ref_audio_tokens[*index].clone())
+                        .collect(),
+                    indices
+                        .iter()
+                        .map(|index| task.ref_texts[*index].clone())
+                        .collect(),
+                )?;
+                for (item_index, generated) in indices.iter().copied().zip(generated) {
+                    chunk_results[item_index].push(generated);
+                }
+            }
+        } else {
+            let first_indices = (0..task.batch_size())
+                .filter(|item_index| !all_chunks[*item_index].is_empty())
+                .collect::<Vec<_>>();
+            let mut first_chunk_refs = vec![None; task.batch_size()];
+            let mut first_chunk_texts = vec![None; task.batch_size()];
+            if !first_indices.is_empty() {
+                let generated = self.run_chunk_batch_device(
+                    task,
+                    &first_indices,
+                    first_indices
+                        .iter()
+                        .map(|index| all_chunks[*index][0].clone())
+                        .collect(),
+                    vec![None; first_indices.len()],
+                    vec![None; first_indices.len()],
+                )?;
+                for (item_index, generated) in first_indices.iter().copied().zip(generated) {
+                    first_chunk_refs[item_index] =
+                        Some(crate::stage0_model::tensor_to_i64_tensor2(&generated)?);
+                    first_chunk_texts[item_index] = Some(all_chunks[item_index][0].clone());
+                    chunk_results[item_index].push(generated);
+                }
+            }
+            for chunk_index in 1..max_chunks {
+                let indices = (0..task.batch_size())
+                    .filter(|item_index| chunk_index < all_chunks[*item_index].len())
+                    .collect::<Vec<_>>();
+                if indices.is_empty() {
+                    continue;
+                }
+                let ref_audio_tokens = indices
+                    .iter()
+                    .map(|index| {
+                        Ok(Some(first_chunk_refs[*index].clone().ok_or_else(|| {
+                            crate::error::OmniVoiceError::InvalidData(
+                                "missing cached first chunk reference tokens".to_string(),
+                            )
+                        })?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let ref_texts = indices
+                    .iter()
+                    .map(|index| {
+                        Ok(Some(first_chunk_texts[*index].clone().ok_or_else(
+                            || {
+                                crate::error::OmniVoiceError::InvalidData(
+                                    "missing cached first chunk reference text".to_string(),
+                                )
+                            },
+                        )?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let generated = self.run_chunk_batch_device(
+                    task,
+                    &indices,
+                    indices
+                        .iter()
+                        .map(|index| all_chunks[*index][chunk_index].clone())
+                        .collect(),
+                    ref_audio_tokens,
+                    ref_texts,
+                )?;
+                for (item_index, generated) in indices.iter().copied().zip(generated) {
+                    chunk_results[item_index].push(generated);
+                }
+            }
+        }
+        Ok(chunk_results)
+    }
+
+    fn run_chunk_batch_device(
+        &self,
+        task: &crate::contracts::GenerationTask,
+        indices: &[usize],
+        texts: Vec<String>,
+        ref_audio_tokens: Vec<Option<crate::contracts::I64Tensor2>>,
+        ref_texts: Vec<Option<String>>,
+    ) -> Result<Vec<Tensor>> {
+        let target_lens = indices
+            .iter()
+            .enumerate()
+            .map(|(local_index, item_index)| {
+                self.frontend.estimate_target_tokens(
+                    &texts[local_index],
+                    ref_texts[local_index].as_deref(),
+                    ref_audio_tokens[local_index]
+                        .as_ref()
+                        .map(|tokens| tokens.dims().1),
+                    task.speed[*item_index],
+                )
+            })
+            .collect::<Vec<_>>();
+        let sub_task = crate::contracts::GenerationTask {
+            texts,
+            target_lens,
+            langs: indices
+                .iter()
+                .map(|index| task.langs[*index].clone())
+                .collect(),
+            instructs: indices
+                .iter()
+                .map(|index| task.instructs[*index].clone())
+                .collect(),
+            ref_texts,
+            ref_audio_tokens,
+            ref_rms: indices.iter().map(|index| task.ref_rms[*index]).collect(),
+            speed: indices.iter().map(|index| task.speed[*index]).collect(),
+            generation_config: task.generation_config.clone(),
+        };
+        self.generate_iterative_task_device(&sub_task)
     }
 
     fn generate_stage0_from_prepared_prompts(

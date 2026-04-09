@@ -3,6 +3,7 @@ use std::{
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
 use candle_core::{DType, Device, Tensor};
@@ -94,11 +95,11 @@ pub struct Stage1DebugRun {
 pub struct Stage1RuntimePlan {
     options: RuntimeOptions,
     bundle: Stage1DecoderBundle,
-    model: Stage1Model,
     device: Device,
     runtime_dtype: DType,
     hop_length: usize,
     frame_rate: usize,
+    model: OnceLock<std::result::Result<Stage1Model, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -246,17 +247,15 @@ impl Stage1RuntimePlan {
         let bundle = Stage1DecoderBundle::from_runtime_artifacts(runtime)?;
         let device = options.resolve_device()?;
         let runtime_dtype = options.resolve_dtype_for_runtime_device(&device);
-        let vb = mmap_var_builder(bundle.weights_path(), runtime_dtype, &device)?;
-        let model = Stage1Model::load(vb, bundle.model_config())?;
 
         Ok(Self {
             bundle,
-            model,
             device,
             runtime_dtype,
             hop_length: runtime.contracts().hop_length,
             frame_rate: runtime.contracts().frame_rate,
             options,
+            model: OnceLock::new(),
         })
     }
 
@@ -389,8 +388,59 @@ impl Stage1RuntimePlan {
         &self.options
     }
 
+    pub fn is_loaded(&self) -> bool {
+        self.model.get().is_some()
+    }
+
+    pub fn decode_final_tensor(
+        &self,
+        tokens: &Tensor,
+        ref_rms: Option<f32>,
+        postprocess_output: bool,
+    ) -> Result<DecodedAudio> {
+        let mut audio = self.decode_raw_tensor(tokens)?;
+        if postprocess_output {
+            let trimmed = remove_silence(&audio.samples, audio.sample_rate, 500, 100, 100);
+            if !trimmed.is_empty() {
+                audio.samples = trimmed;
+            }
+        }
+        ensure_non_empty_audio(&audio.samples)?;
+        audio.samples = if let Some(rms) = ref_rms {
+            apply_clone_rms_restore(&audio.samples, rms)
+        } else {
+            peak_normalize_auto_voice(&audio.samples)?
+        };
+        audio.samples = fade_and_pad_audio(&audio.samples, audio.sample_rate, 0.1, 0.1);
+        Ok(audio)
+    }
+
+    pub fn decode_final_tensor_chunks(
+        &self,
+        chunks: &[Tensor],
+        ref_rms: Option<f32>,
+        postprocess_output: bool,
+    ) -> Result<DecodedAudio> {
+        let mut audio = self.decode_raw_tensor_chunks(chunks)?;
+        if postprocess_output {
+            let trimmed = remove_silence(&audio.samples, audio.sample_rate, 500, 100, 100);
+            if !trimmed.is_empty() {
+                audio.samples = trimmed;
+            }
+        }
+        ensure_non_empty_audio(&audio.samples)?;
+        audio.samples = if let Some(rms) = ref_rms {
+            apply_clone_rms_restore(&audio.samples, rms)
+        } else {
+            peak_normalize_auto_voice(&audio.samples)?
+        };
+        audio.samples = fade_and_pad_audio(&audio.samples, audio.sample_rate, 0.1, 0.1);
+        Ok(audio)
+    }
+
     fn decode_chunk(&self, tokens: &I64Tensor2) -> Result<Vec<f32>> {
-        Ok(self.debug_decode_chunk(tokens)?.1)
+        let tokens = tokens.to_candle(&self.device)?.unsqueeze(0)?;
+        self.decode_audio_tensor(&tokens)
     }
 
     fn debug_decode_chunk(
@@ -398,7 +448,9 @@ impl Stage1RuntimePlan {
         tokens: &I64Tensor2,
     ) -> Result<(BTreeMap<String, F32Tensor3>, Vec<f32>)> {
         self.bundle.validate_generated_tokens(tokens)?;
-        let trace = self.model.decode_tokens_with_trace(tokens, &self.device)?;
+        let trace = self
+            .model()?
+            .decode_tokens_with_trace(tokens, &self.device)?;
         let decoded = trace.raw_waveform.clone();
         let dims = decoded.dims();
         match dims {
@@ -412,13 +464,45 @@ impl Stage1RuntimePlan {
             }
         }
         let mut tensors = trace_to_tensor_map(&trace)?;
-        let raw_samples = decoded
-            .flatten_all()?
-            .to_dtype(DType::F32)?
-            .to_vec1::<f32>()
-            .map_err(OmniVoiceError::from)?;
+        let raw_samples = waveform_to_samples(&decoded)?;
         tensors.insert("raw_waveform".to_string(), audio_to_tensor3(&raw_samples)?);
         Ok((tensors, raw_samples))
+    }
+
+    fn decode_raw_tensor(&self, tokens: &Tensor) -> Result<DecodedAudio> {
+        Ok(DecodedAudio::new(
+            self.decode_audio_tensor(tokens)?,
+            self.bundle.output_sample_rate(),
+        ))
+    }
+
+    fn decode_raw_tensor_chunks(&self, chunks: &[Tensor]) -> Result<DecodedAudio> {
+        let decoded = chunks
+            .iter()
+            .map(|chunk| self.decode_audio_tensor(chunk))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(DecodedAudio::new(
+            cross_fade_chunks(&decoded, self.bundle.output_sample_rate(), 0.3)?,
+            self.bundle.output_sample_rate(),
+        ))
+    }
+
+    fn decode_audio_tensor(&self, tokens: &Tensor) -> Result<Vec<f32>> {
+        let tokens = ensure_stage1_tensor(tokens, &self.device)?;
+        let decoded = self.model()?.decode_tensor(&tokens)?;
+        waveform_to_samples(&decoded)
+    }
+
+    fn model(&self) -> Result<&Stage1Model> {
+        let result = self.model.get_or_init(|| {
+            mmap_var_builder(self.bundle.weights_path(), self.runtime_dtype, &self.device)
+                .and_then(|vb| Stage1Model::load(vb, self.bundle.model_config()))
+                .map_err(|error| error.to_string())
+        });
+        match result {
+            Ok(model) => Ok(model),
+            Err(message) => Err(OmniVoiceError::InvalidData(message.clone())),
+        }
     }
 }
 
@@ -451,6 +535,48 @@ fn trace_to_tensor_map(trace: &Stage1DecodeTrace) -> Result<BTreeMap<String, F32
 
 fn audio_to_tensor3(samples: &[f32]) -> Result<F32Tensor3> {
     F32Tensor3::new((1, 1, samples.len()), samples.to_vec())
+}
+
+fn ensure_stage1_tensor(tokens: &Tensor, device: &Device) -> Result<Tensor> {
+    let dims = tokens.dims();
+    match dims {
+        [_, _] => return tokens.to_device(device)?.unsqueeze(0).map_err(Into::into),
+        [1, _, _] => {}
+        _ => {
+            return Err(OmniVoiceError::InvalidTensorShape {
+                name: "stage1_tokens".to_string(),
+                expected: "(C, T) or (1, C, T)".to_string(),
+                actual: format!("{dims:?}"),
+            })
+        }
+    }
+    tokens.to_device(device).map_err(Into::into)
+}
+
+fn waveform_to_samples(tensor: &Tensor) -> Result<Vec<f32>> {
+    let decoded = tensor.to_device(&Device::Cpu)?;
+    let dims = decoded.dims();
+    match dims {
+        [1, 1, _] => {}
+        _ => {
+            return Err(OmniVoiceError::InvalidTensorShape {
+                name: "stage1_decoded_waveform".to_string(),
+                expected: "(1, 1, T)".to_string(),
+                actual: format!("{dims:?}"),
+            })
+        }
+    }
+    let mut samples = decoded
+        .flatten_all()?
+        .to_dtype(DType::F32)?
+        .to_vec1::<f32>()
+        .map_err(OmniVoiceError::from)?;
+    for sample in &mut samples {
+        if !sample.is_finite() {
+            *sample = 0.0;
+        }
+    }
+    Ok(samples)
 }
 
 fn tensor_to_f32_tensor3(tensor: &Tensor) -> Result<F32Tensor3> {

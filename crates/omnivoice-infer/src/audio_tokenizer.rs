@@ -1,6 +1,6 @@
 use std::{fs, path::Path, sync::OnceLock};
 
-use candle_core::{DType, Device, Tensor};
+use candle_core::{DType, Device, IndexOp, Tensor};
 use candle_nn::{Linear, Module, VarBuilder};
 use serde::Deserialize;
 
@@ -191,7 +191,24 @@ impl AudioTokenizerRuntimePlan {
             )));
         }
         let waveform = Tensor::from_vec(samples.to_vec(), (1, 1, samples.len()), &self.device)?;
-        let codes = self.model()?.encode(&waveform)?;
+        let semantic_waveform = if self.config.sample_rate != self.config.semantic_sample_rate {
+            let semantic_samples = crate::audio_input::resample_linear(
+                samples,
+                self.config.sample_rate,
+                self.config.semantic_sample_rate,
+            );
+            let semantic_len = semantic_samples.len();
+            Some(Tensor::from_vec(
+                semantic_samples,
+                (1, semantic_len),
+                &self.device,
+            )?)
+        } else {
+            None
+        };
+        let codes = self
+            .model()?
+            .encode(&waveform, semantic_waveform.as_ref())?;
         let (_, quantizers, steps) = codes.dims3()?;
         let data = codes
             .to_device(&Device::Cpu)?
@@ -251,7 +268,7 @@ impl AudioTokenizerModel {
         })
     }
 
-    fn encode(&self, waveform: &Tensor) -> Result<Tensor> {
+    fn encode(&self, waveform: &Tensor, semantic_waveform: Option<&Tensor>) -> Result<Tensor> {
         let (_, channels, _) = waveform.dims3()?;
         if channels != 1 {
             return Err(OmniVoiceError::InvalidTensorShape {
@@ -260,12 +277,16 @@ impl AudioTokenizerModel {
                 actual: format!("{:?}", waveform.dims()),
             });
         }
-        let semantic_features = self.semantic_model.extract_semantic_features(
-            waveform,
-            self.config.sample_rate,
-            self.config.semantic_sample_rate,
-            self.config.semantic_downsample_factor(),
-        )?;
+        let semantic_input = match semantic_waveform {
+            Some(semantic_waveform) => semantic_waveform.clone(),
+            None => waveform.i((.., 0, ..))?,
+        };
+        let semantic_features = self
+            .semantic_model
+            .extract_semantic_features_from_resampled(
+                &semantic_input,
+                self.config.semantic_downsample_factor(),
+            )?;
         let semantic_latents = self
             .encoder_semantic
             .forward(&semantic_features.transpose(1, 2)?)?;

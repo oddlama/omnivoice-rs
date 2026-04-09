@@ -79,7 +79,21 @@ impl Stage1Model {
     }
 
     pub fn decode_tensor(&self, tokens: &Tensor) -> Result<Tensor> {
-        Ok(self.decode_tensor_with_trace(tokens)?.raw_waveform)
+        let dims = tokens.dims();
+        match dims {
+            [_, _, _] => {}
+            _ => {
+                return Err(OmniVoiceError::InvalidTensorShape {
+                    name: "stage1_model.tokens".to_string(),
+                    expected: "(B, C, T)".to_string(),
+                    actual: format!("{dims:?}"),
+                });
+            }
+        }
+        let quantizer_output = self.quantizer.decode_codes(tokens)?;
+        let fc2_output = quantizer_output.apply(&self.fc2)?;
+        let decoder_input = fc2_output.transpose(1, 2)?;
+        self.decoder.forward(&decoder_input).map_err(Into::into)
     }
 
     pub fn decode_tensor_with_trace(&self, tokens: &Tensor) -> Result<Stage1DecodeTrace> {
@@ -136,6 +150,11 @@ impl VectorQuantizer {
         })
     }
 
+    fn decode_codes(&self, ids: &Tensor) -> Result<Tensor> {
+        let quantized = ids.apply(&self.codebook)?;
+        quantized.apply(&self.project_out).map_err(Into::into)
+    }
+
     fn decode_codes_with_trace(&self, ids: &Tensor) -> Result<(Tensor, Tensor)> {
         let quantized = ids.apply(&self.codebook)?;
         let projected = quantized.apply(&self.project_out)?;
@@ -168,6 +187,32 @@ impl ResidualVectorQuantizer {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(Self { quantizers })
+    }
+
+    fn decode_codes(&self, codes: &Tensor) -> Result<Tensor> {
+        let (_, codebooks, _) = codes.dims3()?;
+        if codebooks != self.quantizers.len() {
+            return Err(OmniVoiceError::InvalidTensorShape {
+                name: "stage1_model.codes".to_string(),
+                expected: format!("(B, {}, T)", self.quantizers.len()),
+                actual: format!("{:?}", codes.dims()),
+            });
+        }
+
+        let mut projected_sum = None;
+        for (index, quantizer) in self.quantizers.iter().enumerate() {
+            let ids = codes.i((.., index, ..))?;
+            let projected = quantizer.decode_codes(&ids)?;
+            projected_sum = Some(match projected_sum {
+                None => projected,
+                Some(current) => (current + projected)?,
+            });
+        }
+
+        let project_out = projected_sum.ok_or_else(|| {
+            OmniVoiceError::InvalidData("stage1 quantizer set must not be empty".to_string())
+        })?;
+        Ok(project_out)
     }
 
     fn decode_codes_with_trace(&self, codes: &Tensor) -> Result<(Tensor, Tensor)> {
@@ -360,10 +405,11 @@ impl AcousticDecoder {
 
 impl Module for AcousticDecoder {
     fn forward(&self, xs: &Tensor) -> CandleResult<Tensor> {
-        let (_, raw_waveform) = self
-            .forward_with_trace(xs)
-            .map_err(candle_core::Error::wrap)?;
-        Ok(raw_waveform)
+        let mut xs = xs.apply(&self.conv1)?;
+        for block in self.blocks.iter() {
+            xs = xs.apply(block)?;
+        }
+        xs.apply(&self.snake1)?.apply(&self.conv2)
     }
 }
 
