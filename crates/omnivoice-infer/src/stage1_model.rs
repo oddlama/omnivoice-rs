@@ -94,7 +94,7 @@ impl Stage1Model {
                 });
             }
         }
-        let (project_out, quantizer_output) = self.quantizer.from_codes_with_trace(tokens)?;
+        let (project_out, quantizer_output) = self.quantizer.decode_codes_with_trace(tokens)?;
         let fc2_output = project_out.apply(&self.fc2)?;
         let decoder_input = fc2_output.transpose(1, 2)?;
         let (decoder_block_outputs, raw_waveform) =
@@ -170,7 +170,7 @@ impl ResidualVectorQuantizer {
         Ok(Self { quantizers })
     }
 
-    fn from_codes_with_trace(&self, codes: &Tensor) -> Result<(Tensor, Tensor)> {
+    fn decode_codes_with_trace(&self, codes: &Tensor) -> Result<(Tensor, Tensor)> {
         let (_, codebooks, _) = codes.dims3()?;
         if codebooks != self.quantizers.len() {
             return Err(OmniVoiceError::InvalidTensorShape {
@@ -216,7 +216,7 @@ impl Module for Snake1d {
         let xs = xs.flatten_from(2)?;
         let sin = self.alpha.broadcast_mul(&xs)?.sin()?;
         let sin = (&sin * &sin)?;
-        Ok((xs + (&self.alpha + 1e-9)?.recip()?.broadcast_mul(&sin)?)?.reshape(xs_shape)?)
+        (xs + (&self.alpha + 1e-9)?.recip()?.broadcast_mul(&sin)?)?.reshape(xs_shape)
     }
 }
 
@@ -283,7 +283,7 @@ impl DecoderBlock {
             out_dim,
             2 * stride,
             stride,
-            (stride + 1) / 2,
+            stride.div_ceil(2),
             stride % 2,
             vb.pp("conv_t1"),
         )?;
@@ -302,12 +302,11 @@ impl DecoderBlock {
 
 impl Module for DecoderBlock {
     fn forward(&self, xs: &Tensor) -> CandleResult<Tensor> {
-        Ok(xs
-            .apply(&self.snake1)?
+        xs.apply(&self.snake1)?
             .apply(&self.conv_t1)?
             .apply(&self.res_unit1)?
             .apply(&self.res_unit2)?
-            .apply(&self.res_unit3)?)
+            .apply(&self.res_unit3)
     }
 }
 

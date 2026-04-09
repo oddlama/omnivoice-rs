@@ -224,7 +224,6 @@ impl Phase3Pipeline {
             .capture_steps
             .iter()
             .copied()
-            .into_iter()
             .map(|step| case.load_step_capture(step).map(|capture| (step, capture)))
             .collect::<Result<Vec<_>>>()?;
         let reference_final_tokens = match case.load_generated_tokens()? {

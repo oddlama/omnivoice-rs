@@ -193,6 +193,7 @@ fn phase8_raw_reference_and_prebuilt_prompt_generate_identical_tokens() {
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_chunk_request(
     pipeline: &Phase3Pipeline,
     text: &str,

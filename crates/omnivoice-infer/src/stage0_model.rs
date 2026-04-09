@@ -426,7 +426,7 @@ impl Stage0RuntimePlan {
                 &BTreeSet::new(),
             )?;
             let batch_logits = forward.logits.to_dtype(DType::F32)?;
-            for batch_index in 0..batch_size {
+            for (batch_index, batch_schedule) in schedules.iter().enumerate().take(batch_size) {
                 let target_len = prepared.target_lens[batch_index];
                 let cond_len = prepared.cond_lens[batch_index];
                 let c_logits = batch_logits.i((
@@ -462,7 +462,7 @@ impl Stage0RuntimePlan {
                     &pred_tokens_tensor,
                     &confidence_scores_tensor,
                     self.config.audio_mask_id,
-                    schedules[batch_index][step],
+                    batch_schedule[step],
                     &layer_penalties,
                     config.position_temperature,
                 )?;
@@ -499,7 +499,7 @@ impl Stage0RuntimePlan {
                         pred_tokens: tensor_to_i64_tensor3(&pred_tokens_tensor)?,
                         confidence_scores: tensor_to_f32_tensor3(&confidence_scores_tensor)?,
                         batch_input_ids_before_update: tensor_to_i64_tensor3(
-                            &batch_input_ids_before_update
+                            batch_input_ids_before_update
                                 .as_ref()
                                 .expect("capture gate checked"),
                         )?,

@@ -247,7 +247,7 @@ impl HubertPositionalConvEmbedding {
         Ok(Self {
             conv,
             activation: parse_activation("gelu")?,
-            pad_remove: usize::from(config.semantic_num_conv_pos_embeddings % 2 == 0),
+            pad_remove: usize::from(config.semantic_num_conv_pos_embeddings.is_multiple_of(2)),
         })
     }
 
@@ -568,6 +568,7 @@ fn load_layer_norm(vb: VarBuilder<'_>, hidden_size: usize, eps: f64) -> Result<L
     ))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_conv1d(
     vb: VarBuilder<'_>,
     in_channels: usize,

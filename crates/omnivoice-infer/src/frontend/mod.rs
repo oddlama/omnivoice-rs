@@ -53,7 +53,7 @@ impl Frontend {
             num_audio_codebook: model_config.num_audio_codebook,
             audio_mask_id: model_config.audio_mask_id,
             frame_rate: runtime.contracts().frame_rate,
-            duration_estimator: RuleDurationEstimator::default(),
+            duration_estimator: RuleDurationEstimator,
         })
     }
 

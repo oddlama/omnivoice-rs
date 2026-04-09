@@ -280,6 +280,7 @@ impl VectorQuantizer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn load_conv1d(
     vb: VarBuilder<'_>,
     in_channels: usize,

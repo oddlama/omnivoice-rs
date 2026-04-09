@@ -7,18 +7,13 @@ use crate::{
     error::{OmniVoiceError, Result},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DeviceSpec {
+    #[default]
     Auto,
     Cpu,
     Cuda(usize),
     Metal,
-}
-
-impl Default for DeviceSpec {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl DeviceSpec {
@@ -54,18 +49,13 @@ impl DeviceSpec {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DTypeSpec {
+    #[default]
     Auto,
     F32,
     F16,
     BF16,
-}
-
-impl Default for DTypeSpec {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl DTypeSpec {

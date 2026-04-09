@@ -924,7 +924,7 @@ impl ReferenceCaseHandle {
 
     pub fn load_generated_tokens(&self) -> Result<GeneratedTokens> {
         let tensors = read_safetensors(self.case_dir.join("final_tokens.safetensors"))?;
-        if tensors.names().iter().any(|name| *name == "tokens") {
+        if tensors.names().contains(&"tokens") {
             return Ok(GeneratedTokens::Single(load_i64_tensor2(
                 &tensors, "tokens",
             )?));

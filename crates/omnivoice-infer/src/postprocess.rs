@@ -17,8 +17,8 @@ pub fn fade_and_pad_audio(
     let pad_samples = (pad_duration * sample_rate as f32) as usize;
 
     if fade_samples > 0 {
-        for index in 0..fade_samples {
-            processed[index] *= linspace_value(index, fade_samples, 0.0, 1.0);
+        for (index, sample) in processed.iter_mut().enumerate().take(fade_samples) {
+            *sample *= linspace_value(index, fade_samples, 0.0, 1.0);
         }
         let offset = processed.len() - fade_samples;
         for index in 0..fade_samples {
@@ -88,8 +88,8 @@ pub fn cross_fade_chunks(
         let mut faded_next = chunk.clone();
         let fade_in = fade_samples.min(faded_next.len());
         if fade_in > 0 {
-            for index in 0..fade_in {
-                faded_next[index] *= linspace_value(index, fade_in, 0.0, 1.0);
+            for (index, sample) in faded_next.iter_mut().enumerate().take(fade_in) {
+                *sample *= linspace_value(index, fade_in, 0.0, 1.0);
             }
         }
 
