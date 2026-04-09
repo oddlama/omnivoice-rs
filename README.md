@@ -1,75 +1,21 @@
-<!--
-  README TEMPLATE — TAURI + SVELTE
-  
-  Замените плейсхолдеры {{...}} и удалите этот комментарий.
-  
-  {{PROJECT_NAME}}     — Название проекта
-  {{PROJECT_SLUG}}     — GitHub slug (owner/repo)
-  {{LOGO_URL}}         — URL логотипа
-  {{SCREENSHOT_URL}}   — URL главного скриншота
-  {{YEAR}}             — Год копирайта
-  {{AUTHOR}}           — Имя автора
-  {{LICENSE_TYPE}}     — Тип лицензии
-
-  ─────────────────────────────────────────────────────────────────────────────
-  ОБЯЗАТЕЛЬНЫЕ ПЕРЕВОДЫ (3 языка):
-  ─────────────────────────────────────────────────────────────────────────────
-  
-  1. README.md      — English (основной)
-  2. README.RU.md   — Русский
-  3. README.PT_BR.md — Português (Brasil)
-  
-  Цвета бейджей:
-  - Активный язык (текущий файл):
-    • English:    #5B7CFA (синий)
-    • Русский:    #D65C5C (красный)
-    • Português:  #3ABF7A (зелёный)
-  - Неактивный язык: #232323 (тёмно-серый)
--->
-
-</p>
 <p align="left">
-  <!-- Для README.md (English — активный) -->
   <a href="README.md"><img src="https://img.shields.io/badge/English-5B7CFA" alt="English"></a>
   <a href="README.RU.md"><img src="https://img.shields.io/badge/Русский-232323" alt="Русский"></a>
   <a href="README.PT_BR.md"><img src="https://img.shields.io/badge/Português_BR-232323" alt="Português"></a>
-  
-  <!-- Для README.RU.md (Русский — активный)
-  <a href="README.md"><img src="https://img.shields.io/badge/English-232323" alt="English"></a>
-  <a href="README.RU.md"><img src="https://img.shields.io/badge/Русский-D65C5C" alt="Русский"></a>
-  <a href="README.PT_BR.md"><img src="https://img.shields.io/badge/Português_BR-232323" alt="Português"></a>
-  -->
-  
-  <!-- Для README.PT_BR.md (Português — активный)
-  <a href="README.md"><img src="https://img.shields.io/badge/English-232323" alt="English"></a>
-  <a href="README.RU.md"><img src="https://img.shields.io/badge/Русский-232323" alt="Русский"></a>
-  <a href="README.PT_BR.md"><img src="https://img.shields.io/badge/Português_BR-3ABF7A" alt="Português"></a>
-  -->
 </p>
 
 ---
 
 <p align="center">
-  <img src="{{LOGO_URL}}" alt="{{PROJECT_NAME}} Logo" width="512" height="512">
-
-<p align="center">
-  <b>{{PROJECT_DESCRIPTION}}</b><br>
-  {{PROJECT_TAGLINE}}
+  <b>OmniVoice Rust Port</b><br>
+  FerrisMind GPU-first Rust workspace for OmniVoice inference, parity validation, and CLI execution with Candle.
 </p>
 
 <p align="center">
-  <a href="https://github.com/{{PROJECT_SLUG}}/releases"><img src="https://img.shields.io/github/v/release/{{PROJECT_SLUG}}?logo=github" alt="Latest Release"></a>
-  <!-- Раскомментируйте, если проект включён в соответствующий awesome-list:
-  <a href="https://github.com/tauri-apps/awesome-tauri"><img src="https://img.shields.io/badge/Awesome-Tauri-24C8D8?logo=tauri" alt="Awesome Tauri"></a>
-  <a href="https://github.com/TheComputerM/awesome-svelte"><img src="https://img.shields.io/badge/Awesome-Svelte-FF3E00?logo=svelte" alt="Awesome Svelte"></a>
-  <a href="https://github.com/{{PROJECT_SLUG}}/stargazers"><img src="https://img.shields.io/github/stars/{{PROJECT_SLUG}}?logo=github" alt="GitHub Stars"></a>
-  -->
-</p>
-
-<h1 align="center"></h1>
-
-<p align="center">
-  <img src="{{SCREENSHOT_URL}}" alt="{{PROJECT_NAME}} Interface" width="900">
+  <img src="https://img.shields.io/badge/Rust-workspace-DEA584?logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/Candle-0.10.2-232323" alt="Candle">
+  <img src="https://img.shields.io/badge/Inference-GPU--First-5B7CFA" alt="GPU First">
+  <img src="https://img.shields.io/badge/Author-FerrisMind-3ABF7A" alt="FerrisMind">
 </p>
 
 ## 📚 Table of Contents
@@ -85,111 +31,102 @@
 
 ## ✨ What is this?
 
-{{PROJECT_NAME}} is a native desktop application for [purpose]. Built with Rust and Tauri v2, it provides a fast, [key benefit] without requiring [limitation it removes].
+This repository is a FerrisMind-maintained Rust workspace focused on porting OmniVoice inference to Candle with GPU-first execution.
+
+It contains:
+
+- `crates/omnivoice-infer` — the two-stage inference pipeline
+- `crates/omnivoice-cli` — CLI for prompt prep, stage0/stage1 inspection, and full inference
+- `docs/contracts` — phase-by-phase behavior contracts
+- `tools` — local reference and support scripts
+
+The project treats CUDA and Metal as primary inference targets. CPU exists only for fallback, explicit offload, preprocessing, and debug materialization.
 
 ## 🎬 Demo
 
-<!-- Вставьте демо-видео через GitHub assets -->
-https://github.com/user-attachments/assets/your-video-id
+There is no public GUI demo in this workspace. The primary interface is the CLI.
+
+```powershell
+cargo run -p omnivoice-cli --features cuda -- infer `
+  --model-dir H:\omnivoice\model `
+  --text "Hello, this is a test of zero-shot text-to-speech." `
+  --language en `
+  --output H:\omnivoice\artifacts\demo.wav `
+  --device cuda:0 `
+  --dtype f32 `
+  --seed 1234
+```
 
 ## 🚀 Key Features
 
-- Feature 1 — description
-- Feature 2 — description
-- Feature 3 — description
-- Feature 4 — description
-- Feature 5 — description
+- Two-stage OmniVoice inference pipeline in Rust
+- GPU-first runtime selection: CUDA -> Metal -> CPU fallback
+- Stage0 and Stage1 parity harnesses against official OmniVoice references
+- Voice clone, voice design, auto voice, batch, and long-form chunked inference
+- CLI workflows for `prepare-prompt`, `stage0-debug`, `stage1-decode`, and `infer`
 
 ### Hardware Acceleration
 
 | Backend | Status | Notes |
 |---------|:------:|-------|
-| CPU | ✅ | Default, works everywhere |
-| CUDA (NVIDIA) | ✅ | Requires CUDA toolkit |
-| Metal (Apple) | ✅ | macOS only |
-| Intel MKL | ⚠️ | Optional |
+| CPU | ✅ | Fallback, preprocessing, debug, offload |
+| CUDA (NVIDIA) | ✅ | Primary local validation path |
+| Metal (Apple) | ✅ | Implemented and mirrored in tests |
 
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
 
-- Node.js (for frontend build)
-- Rust toolchain (for backend)
-- For CUDA: NVIDIA GPU with CUDA toolkit
-- For Metal: macOS with Apple Silicon
+- Rust toolchain
+- For CUDA: NVIDIA GPU and compatible driver/toolkit
+- For Metal: macOS with Metal support
+- Local model weights in `model/`
+- Local references in `refs/`
 
 ### Development
 
-```bash
-# Install dependencies
-npm install
-
-# Run with CPU backend
-npm run tauri:dev:cpu
-
-# Run with CUDA backend (NVIDIA GPU)
-npm run tauri:dev:cuda
-
-# Platform-aware development
-npm run app:dev
-```
-
-### Build
-
-```bash
-# Build with CPU backend
-npm run tauri:build:cpu
-
-# Build with CUDA backend
-npm run tauri:build:cuda
+```powershell
+cargo fmt
+cargo test -p omnivoice-infer --features cuda --test phase_status -- --nocapture --test-threads=1
+cargo test -p omnivoice-cli --features cuda --test phase10_cli_cuda -- --nocapture --test-threads=1
 ```
 
 ### Quality Checks
 
-```bash
-npm run lint          # ESLint
-npm run lint:fix      # ESLint with auto-fix
-npm run check         # Svelte type checking
-npm run format        # Prettier formatting
-npm run test          # Vitest tests
-```
-
-### Rust-specific (from src-tauri/)
-
-```bash
-cargo clippy          # Linting
-cargo test            # Unit tests
-cargo audit           # Security audit
+```powershell
+cargo fmt
+cargo clippy --workspace --all-targets
+cargo test -p omnivoice-infer --features cuda --test phase10_cuda_acceptance -- --nocapture --test-threads=1
+cargo test -p omnivoice-cli --features cuda --test phase10_cli_cuda -- --nocapture --test-threads=1
 ```
 
 ## 📖 How to Start Using
 
-1. Build or download the application
-2. Download required models/data (if applicable)
-3. Launch {{PROJECT_NAME}}
-4. Configure through the interface
-5. Start using!
+1. Put real model assets into `model/`.
+2. Keep official references in `refs/` for behavior verification.
+3. Run sequential GPU tests instead of launching everything at once.
+4. Use `omnivoice-cli infer` for end-to-end synthesis.
 
 ## 🖥️ System Requirements
 
 - Windows, macOS, or Linux
-- Minimum 4 GB RAM (8+ GB recommended)
+- Enough RAM and VRAM for OmniVoice weights and runtime tensors
 - For GPU acceleration:
-  - NVIDIA: CUDA-compatible GPU
-  - Apple: M1/M2/M3/M4 chip (Metal)
+  - NVIDIA GPU for CUDA
+  - Apple Silicon / supported macOS GPU for Metal
 
 ## 🙏 Acknowledgments
 
-This project is built on top of excellent open-source work:
+This workspace builds on top of the official upstream projects:
 
-- [Tauri](https://tauri.app/) — Desktop application framework
-- [Svelte](https://svelte.dev/) — Frontend framework
-- [Dependency](URL) — Description
+- [OmniVoice](https://github.com/k2-fsa/OmniVoice)
+- [candle](https://github.com/huggingface/candle)
+- [mistral.rs](https://github.com/EricLBuehler/mistral.rs)
 
-See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for full dependency attribution.
+The local `refs/` directory is used as the source of truth for behavior and engineering reference, but it is not part of version control.
 
 ## 📄 License
 
-{{LICENSE_TYPE}} — see [LICENSE](LICENSE)
+Apache-2.0 — see [LICENSE](LICENSE)
 
-Copyright (c) {{YEAR}} {{AUTHOR}}
+Copyright (c) 2026 FerrisMind

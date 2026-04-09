@@ -1,0 +1,268 @@
+{
+  "cases": [
+    {
+      "id": "auto_en_short",
+      "kind": "main",
+      "text": "OmniVoice creates clear speech from text with minimal setup.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "design_en_british",
+      "kind": "main",
+      "text": "Good afternoon. This reference should sound calm, precise, and suitable for a polished product demo.",
+      "language": "English",
+      "instruct": "female, low pitch, british accent",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "design_zh_control",
+      "kind": "main",
+      "text": "[laughter]今天的发布会到此结束，感谢大家的聆听，祝你晚上愉快。",
+      "language": "Chinese",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "clone_user_ref",
+      "kind": "main",
+      "text": "This cloned sample should preserve the speaking style from the provided reference audio.",
+      "language": "English",
+      "ref_audio": "__CLI_REF_AUDIO__",
+      "ref_text": "__CLI_REF_TEXT__",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "auto_long_chunked",
+      "kind": "main",
+      "text": "OmniVoice can synthesize long-form speech while keeping memory usage stable. In this reference run, the text is intentionally longer than a typical demo sentence so the pipeline is forced through its chunking path. Each section should stay intelligible, maintain similar pacing, and join smoothly with the following section. The goal here is not literary quality. The goal is to exercise preprocessing, token estimation, chunk planning, iterative decoding, chunk stitching, raw audio decoding, and final post processing in a single reproducible artifact. We repeat the core idea once more so the model has enough text to split. OmniVoice can synthesize long-form speech while keeping memory usage stable. In this reference run, the text is intentionally longer than a typical demo sentence so the pipeline is forced through its chunking path. Each section should stay intelligible, maintain similar pacing, and join smoothly with the following section.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true,
+        "duration": 35.0
+      }
+    },
+    {
+      "id": "debug_auto_en_short",
+      "kind": "debug",
+      "text": "OmniVoice creates clear speech from text with minimal setup.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      },
+      "debug": {
+        "device": "cpu",
+        "dtype": "float32",
+        "capture_steps": [0, 15, 31],
+        "capture_layers": [0, 13, 27, "final"]
+      }
+    },
+    {
+      "id": "debug_clone_user_ref",
+      "kind": "debug",
+      "enabled_by_default": false,
+      "text": "This cloned sample should preserve the speaking style from the provided reference audio.",
+      "language": "English",
+      "ref_audio": "__CLI_REF_AUDIO__",
+      "ref_text": "__CLI_REF_TEXT__",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 5.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      },
+      "debug": {
+        "device": "cpu",
+        "dtype": "float32",
+        "capture_steps": [0, 15, 31],
+        "capture_layers": [0, 13, 27, "final"]
+      }
+    },
+    {
+      "id": "det_auto_en_short",
+      "kind": "main",
+      "enabled_by_default": false,
+      "text": "OmniVoice creates clear speech from text with minimal setup.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "det_design_en_british",
+      "kind": "main",
+      "enabled_by_default": false,
+      "text": "Good afternoon. This reference should sound calm, precise, and suitable for a polished product demo.",
+      "language": "English",
+      "instruct": "female, low pitch, british accent",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "det_clone_user_ref",
+      "kind": "main",
+      "enabled_by_default": false,
+      "text": "This cloned sample should preserve the speaking style from the provided reference audio.",
+      "language": "English",
+      "ref_audio": "__CLI_REF_AUDIO__",
+      "ref_text": "__CLI_REF_TEXT__",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      }
+    },
+    {
+      "id": "det_auto_long_chunked",
+      "kind": "main",
+      "enabled_by_default": false,
+      "text": "OmniVoice can synthesize long-form speech while keeping memory usage stable. In this reference run, the text is intentionally longer than a typical demo sentence so the pipeline is forced through its chunking path. Each section should stay intelligible, maintain similar pacing, and join smoothly with the following section. The goal here is not literary quality. The goal is to exercise preprocessing, token estimation, chunk planning, iterative decoding, chunk stitching, raw audio decoding, and final post processing in a single reproducible artifact. We repeat the core idea once more so the model has enough text to split. OmniVoice can synthesize long-form speech while keeping memory usage stable. In this reference run, the text is intentionally longer than a typical demo sentence so the pipeline is forced through its chunking path. Each section should stay intelligible, maintain similar pacing, and join smoothly with the following section.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true,
+        "duration": 35.0
+      }
+    },
+    {
+      "id": "det_debug_auto_en_short",
+      "kind": "debug",
+      "enabled_by_default": false,
+      "text": "OmniVoice creates clear speech from text with minimal setup.",
+      "language": "English",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      },
+      "debug": {
+        "device": "cpu",
+        "dtype": "float32",
+        "capture_steps": [0, 15, 31],
+        "capture_layers": [0, 13, 27, "final"]
+      }
+    },
+    {
+      "id": "det_debug_clone_user_ref",
+      "kind": "debug",
+      "enabled_by_default": false,
+      "text": "This cloned sample should preserve the speaking style from the provided reference audio.",
+      "language": "English",
+      "ref_audio": "__CLI_REF_AUDIO__",
+      "ref_text": "__CLI_REF_TEXT__",
+      "generation": {
+        "num_step": 32,
+        "guidance_scale": 2.0,
+        "t_shift": 0.1,
+        "denoise": true,
+        "position_temperature": 0.0,
+        "class_temperature": 0.0,
+        "layer_penalty_factor": 5.0,
+        "preprocess_prompt": true,
+        "postprocess_output": true
+      },
+      "debug": {
+        "device": "cpu",
+        "dtype": "float32",
+        "capture_steps": [0, 15, 31],
+        "capture_layers": [0, 13, 27, "final"]
+      }
+    }
+  ]
+}

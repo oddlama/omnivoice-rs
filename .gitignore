@@ -1,0 +1,47 @@
+# FerrisMind project repository ignores
+
+# Rust / Cargo
+/target/
+**/*.rs.bk
+
+# Local heavy artifacts and reference corpora
+/artifacts/
+/model/
+/refs/
+
+# Local tools / caches
+/.cache/
+/.tmp/
+/.temp/
+*.log
+
+# Python / virtualenv
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.venv/
+**/venv/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Generated audio / exports
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.jsonl
+
+# Keep these root files versioned if explicitly added later
+!Cargo.toml
+!Cargo.lock
+!README.md
+!.gitattributes
