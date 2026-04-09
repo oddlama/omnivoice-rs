@@ -8,14 +8,13 @@
 
 <p align="center">
   <b>OmniVoice Rust Port</b><br>
-  GPU-first Rust workspace от FerrisMind для инференса OmniVoice, проверки паритета и CLI-запуска на Candle.
+  GPU-first Rust workspace для инференса OmniVoice, проверки паритета и CLI-запуска на Candle.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-workspace-DEA584?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Candle-0.10.2-232323" alt="Candle">
   <img src="https://img.shields.io/badge/Inference-GPU--First-5B7CFA" alt="GPU First">
-  <img src="https://img.shields.io/badge/Author-FerrisMind-3ABF7A" alt="FerrisMind">
 </p>
 
 ## 📚 Содержание
@@ -31,7 +30,7 @@
 
 ## ✨ Что это?
 
-Это Rust workspace, который FerrisMind использует для портирования инференса OmniVoice на Candle с приоритетом GPU-исполнения.
+Это Rust workspace для портирования инференса OmniVoice на Candle с приоритетом GPU-исполнения.
 
 Состав:
 

@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-This FerrisMind workspace depends on and/or adapts behavior from several upstream open-source projects.
+This workspace depends on and/or adapts behavior from several upstream open-source projects.
 
 This file is not a full machine-generated dependency inventory. It is a focused attribution file for the primary upstream projects that are materially relevant to this repository's source code, inference behavior, or distributed functionality.
 

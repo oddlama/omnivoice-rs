@@ -8,14 +8,13 @@
 
 <p align="center">
   <b>OmniVoice Rust Port</b><br>
-  Workspace Rust com foco em GPU, mantido por FerrisMind, para inferência OmniVoice, validação de paridade e execução via CLI com Candle.
+  Workspace Rust com foco em GPU para inferência OmniVoice, validação de paridade e execução via CLI com Candle.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-workspace-DEA584?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Candle-0.10.2-232323" alt="Candle">
   <img src="https://img.shields.io/badge/Inference-GPU--First-5B7CFA" alt="GPU First">
-  <img src="https://img.shields.io/badge/Author-FerrisMind-3ABF7A" alt="FerrisMind">
 </p>
 
 ## 📚 Índice
@@ -31,7 +30,7 @@
 
 ## ✨ O que é isso?
 
-Este é um workspace Rust usado por FerrisMind para portar a inferência do OmniVoice para Candle com execução prioritária em GPU.
+Este é um workspace Rust para portar a inferência do OmniVoice para Candle com execução prioritária em GPU.
 
 Ele contém:
 

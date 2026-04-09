@@ -8,14 +8,13 @@
 
 <p align="center">
   <b>OmniVoice Rust Port</b><br>
-  FerrisMind GPU-first Rust workspace for OmniVoice inference, parity validation, and CLI execution with Candle.
+  GPU-first Rust workspace for OmniVoice inference, parity validation, and CLI execution with Candle.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-workspace-DEA584?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/Candle-0.10.2-232323" alt="Candle">
   <img src="https://img.shields.io/badge/Inference-GPU--First-5B7CFA" alt="GPU First">
-  <img src="https://img.shields.io/badge/Author-FerrisMind-3ABF7A" alt="FerrisMind">
 </p>
 
 ## 📚 Table of Contents
@@ -31,7 +30,7 @@
 
 ## ✨ What is this?
 
-This repository is a FerrisMind-maintained Rust workspace focused on porting OmniVoice inference to Candle with GPU-first execution.
+This repository is a Rust workspace focused on porting OmniVoice inference to Candle with GPU-first execution.
 
 It contains:
 
