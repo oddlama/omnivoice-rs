@@ -9,7 +9,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   OMNIVOICE_MODEL_REPO: k2-fsa/OmniVoice
-  OMNIVOICE_WHISPER_REPO: oxide-lab/whisper-large-v3-turbo-GGUF
+  OMNIVOICE_WHISPER_REPO: oxide-lab/whisper-base-GGUF
   OMNIVOICE_FIXTURES_TAG: ci-fixtures-v1
   OMNIVOICE_FIXTURES_BASENAME: omnivoice-ci-fixtures-v1.tar.zst
 
@@ -74,10 +74,30 @@ jobs:
           model_root = workspace / "model"
           model_root.mkdir(parents=True, exist_ok=True)
 
-          allowlist_path = workspace / ".github" / "ci" / "omnivoice-model-allowlist.json"
-          allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
-          repo_id = allowlist["repo_id"]
-          allow_patterns = allowlist["paths"]
+          manifest_source = workspace / "crates" / "omnivoice-infer" / "assets" / "omnivoice.artifacts.json"
+          manifest = json.loads(manifest_source.read_text(encoding="utf-8"))
+          repo_id = os.environ["OMNIVOICE_MODEL_REPO"]
+
+          allow_patterns = []
+          seen = set()
+          for relative in [
+              manifest["generator"]["config"],
+              manifest["generator"]["weights"],
+              manifest["text_tokenizer"]["tokenizer"],
+              manifest["text_tokenizer"]["tokenizer_config"],
+              manifest["text_tokenizer"].get("metadata", {}).get("chat_template"),
+              manifest["audio_tokenizer"]["config"],
+              manifest["audio_tokenizer"]["weights"],
+              manifest["audio_tokenizer"]["preprocessor_config"],
+              manifest["audio_tokenizer"].get("metadata", {}).get("license"),
+          ]:
+              if not relative:
+                  continue
+              normalized = relative.replace("\\", "/")
+              if normalized not in seen:
+                  seen.add(normalized)
+                  allow_patterns.append(normalized)
+
           token = os.environ["HF_TOKEN"]
 
           snapshot_download(
@@ -88,7 +108,6 @@ jobs:
               token=token,
           )
 
-          manifest_source = workspace / ".github" / "ci" / "omnivoice.artifacts.json"
           shutil.copy2(manifest_source, model_root / "omnivoice.artifacts.json")
           PY
 
@@ -107,30 +126,16 @@ jobs:
 
           repo_id = os.environ["OMNIVOICE_WHISPER_REPO"]
           token = os.environ["HF_TOKEN"]
-          repo_files = sorted(list_repo_files(repo_id=repo_id, repo_type="model", token=token))
-
-          def first_matching(predicate, description):
-              for entry in repo_files:
-                  if predicate(entry):
-                      return entry
-              raise RuntimeError(f"Missing required Whisper file: {description}")
-
-          config_file = first_matching(lambda path: path.endswith("config.json"), "config.json")
-          tokenizer_file = first_matching(
-              lambda path: path.endswith("tokenizer.json"),
+          repo_files = set(list_repo_files(repo_id=repo_id, repo_type="model", token=token))
+          required_files = [
+              "config.json",
               "tokenizer.json",
-          )
-          gguf_files = [
-              path
-              for path in repo_files
-              if path.lower().endswith(".gguf") and "whisper.cpp/" not in path.lower()
+              "whisper-base-q4_0.gguf",
           ]
-          if not gguf_files:
-              raise RuntimeError("Missing valid Whisper GGUF weights")
-          gguf_files.sort(key=lambda path: (0 if "q4_0" in path.lower() else 1, path))
-          selected_weights = gguf_files[0]
 
-          for remote_path in [config_file, tokenizer_file, selected_weights]:
+          for remote_path in required_files:
+              if remote_path not in repo_files:
+                  raise RuntimeError(f"Missing required Whisper Candle file: {remote_path}")
               cached = Path(
                   hf_hub_download(
                       repo_id=repo_id,

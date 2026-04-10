@@ -278,7 +278,7 @@ fn phase10_metal_auto_device_dtype_prioritize_gpu() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let pipeline = auto_pipeline();
     assert!(pipeline.stage0().device().is_metal());
-    assert_eq!(pipeline.stage0().runtime_dtype(), DType::F16);
+    assert_eq!(pipeline.stage0().runtime_dtype(), DType::F32);
 
     let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
     let case = bundle.case_by_id("det_auto_en_short").unwrap();
@@ -286,6 +286,6 @@ fn phase10_metal_auto_device_dtype_prioritize_gpu() {
     let actual = pipeline.generate(&request).unwrap();
     let expected = case.load_final_audio().unwrap();
     assert_audio_matches_reference_with_frame_tolerance(
-        &actual[0], &expected, 20_000, 3.0e-2, 5.0e-2, 0.55,
+        &actual[0], &expected, 480, 3.0e-3, 1.0e-2, 0.4,
     );
 }

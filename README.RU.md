@@ -47,13 +47,21 @@ CUDA и Metal считаются основными backend’ами. CPU исп
 
 ```powershell
 cargo run -p omnivoice-cli --features cuda -- infer `
-  --model-dir H:\omnivoice\model `
   --text "Hello, this is a test of zero-shot text-to-speech." `
   --language en `
   --output H:\omnivoice\artifacts\demo.wav `
   --device cuda:0 `
   --dtype f32 `
   --seed 1234
+```
+
+Если нужно явно указать локальный bundle или конкретный Hugging Face repo, передайте `--model`:
+
+```powershell
+cargo run -p omnivoice-cli --features cuda -- infer `
+  --model H:\models\OmniVoice `
+  --text "Hello from a local model bundle." `
+  --output H:\omnivoice\artifacts\demo-local.wav
 ```
 
 ## 🚀 Ключевые возможности
@@ -79,7 +87,7 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 - Rust toolchain
 - Для CUDA: NVIDIA GPU и совместимый драйвер/toolkit
 - Для Metal: macOS с поддержкой Metal
-- Локальные веса модели в `model/`
+- Либо локальный OmniVoice bundle, либо network access для скачивания моделей в Hugging Face cache
 - Локально доступные официальные upstream-референсы
 
 ### Разработка
@@ -101,10 +109,11 @@ cargo test -p omnivoice-cli --features cuda --test phase10_cli_cuda -- --nocaptu
 
 ## 📖 Как начать использовать
 
-1. Положите реальные model assets в `model/`.
-2. Держите официальные upstream-референсы локально доступными для проверки поведения.
-3. Запускайте GPU-тесты последовательно, а не все сразу.
-4. Используйте `omnivoice-cli infer` для end-to-end синтеза.
+1. Либо передайте `--model <local-path>`, либо дайте CLI/server автоматически разрешить `k2-fsa/OmniVoice` из Hugging Face.
+2. Если не передавать `--asr-model`, Whisper по умолчанию берётся из `oxide-lab/whisper-base-GGUF` и скачивает Candle-совместимый набор `config.json`, `tokenizer.json`, `whisper-base-q4_0.gguf`.
+3. Держите официальные upstream-референсы локально доступными для проверки поведения.
+4. Запускайте GPU-тесты последовательно, а не все сразу.
+5. Используйте `omnivoice-cli infer` для end-to-end синтеза.
 
 ## 🖥️ Системные требования
 

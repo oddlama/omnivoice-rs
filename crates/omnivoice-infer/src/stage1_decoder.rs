@@ -255,7 +255,7 @@ impl Stage1RuntimePlan {
         bundle: Stage1DecoderBundle,
         device: Device,
     ) -> Result<Self> {
-        let runtime_dtype = options.resolve_dtype_for_runtime_device(&device);
+        let runtime_dtype = options.resolve_audio_dtype_for_runtime_device(&device);
 
         Ok(Self {
             bundle,

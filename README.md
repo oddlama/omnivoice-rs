@@ -48,7 +48,6 @@ There is no public GUI demo in this workspace. The primary interface is the CLI.
 
 ```powershell
 cargo run -p omnivoice-cli --features cuda -- infer `
-  --model-dir H:\omnivoice\model `
   --text "Hello, this is a test of zero-shot text-to-speech." `
   --language en `
   --output H:\omnivoice\artifacts\demo.wav `
@@ -57,12 +56,20 @@ cargo run -p omnivoice-cli --features cuda -- infer `
   --seed 1234
 ```
 
+If you want to force a local bundle or a specific Hugging Face repo, pass `--model`:
+
+```powershell
+cargo run -p omnivoice-cli --features cuda -- infer `
+  --model H:\models\OmniVoice `
+  --text "Hello from a local model bundle." `
+  --output H:\omnivoice\artifacts\demo-local.wav
+```
+
 For an OpenAI-compatible speech endpoint, run the separate server binary:
 
 ```powershell
 $env:OMNIVOICE_API_KEY="local-dev-token"
 cargo run -p omnivoice-server --features cuda -- `
-  --model-dir H:\omnivoice\model `
   --host 127.0.0.1 `
   --port 8000 `
   --device cuda:0 `
@@ -93,7 +100,7 @@ cargo run -p omnivoice-server --features cuda -- `
 - Rust toolchain
 - For CUDA: NVIDIA GPU and compatible driver/toolkit
 - For Metal: macOS with Metal support
-- Local model weights in `model/`
+- Either a local OmniVoice bundle or network access to download models into the Hugging Face cache
 - Official upstream reference materials available locally
 
 ### Development
@@ -115,10 +122,11 @@ cargo test -p omnivoice-cli --features cuda --test phase10_cli_cuda -- --nocaptu
 
 ## 📖 How to Start Using
 
-1. Put real model assets into `model/`.
-2. Keep official upstream reference materials available locally for behavior verification.
-3. Run sequential GPU tests instead of launching everything at once.
-4. Use `omnivoice-cli infer` for end-to-end synthesis.
+1. Either pass `--model <local-path>` or let the CLI/server auto-resolve `k2-fsa/OmniVoice` from Hugging Face.
+2. If you omit `--asr-model`, Whisper defaults to `oxide-lab/whisper-base-GGUF` and downloads the Candle-compatible `config.json`, `tokenizer.json`, and `whisper-base-q4_0.gguf`.
+3. Keep official upstream reference materials available locally for behavior verification.
+4. Run sequential GPU tests instead of launching everything at once.
+5. Use `omnivoice-cli infer` for end-to-end synthesis.
 
 ## 🖥️ System Requirements
 

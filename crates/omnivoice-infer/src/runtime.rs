@@ -73,10 +73,10 @@ impl DTypeSpec {
 
     pub fn resolve_for_device(self, device: DeviceSpec) -> DType {
         match self {
-            Self::Auto => match device {
-                DeviceSpec::Cuda(_) | DeviceSpec::Metal => DType::F16,
-                DeviceSpec::Auto | DeviceSpec::Cpu => DType::F32,
-            },
+            Self::Auto => {
+                let _ = device;
+                DType::F32
+            }
             Self::F32 => DType::F32,
             Self::F16 => DType::F16,
             Self::BF16 => DType::BF16,
@@ -85,8 +85,10 @@ impl DTypeSpec {
 
     pub fn resolve_for_runtime_device(self, device: &Device) -> DType {
         match self {
-            Self::Auto if device.is_cuda() || device.is_metal() => DType::F16,
-            Self::Auto => DType::F32,
+            Self::Auto => {
+                let _ = device;
+                DType::F32
+            }
             Self::F32 => DType::F32,
             Self::F16 => DType::F16,
             Self::BF16 => DType::BF16,
@@ -153,6 +155,12 @@ impl RuntimeOptions {
 
     pub fn resolve_dtype_for_runtime_device(&self, device: &Device) -> DType {
         self.dtype.resolve_for_runtime_device(device)
+    }
+
+    pub fn resolve_audio_dtype_for_runtime_device(&self, _device: &Device) -> DType {
+        // Audio tokenizer and stage1 decoder are numerically unstable in f16 on GPU backends.
+        // Keep them on f32 until lower-precision parity is verified for live inference.
+        DType::F32
     }
 
     pub fn load_runtime_artifacts(&self) -> Result<RuntimeArtifacts> {

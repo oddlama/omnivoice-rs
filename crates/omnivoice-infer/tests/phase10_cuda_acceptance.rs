@@ -118,6 +118,29 @@ fn phase10_cuda_clone_with_prebuilt_prompt_matches_reference_audio() {
 }
 
 #[test]
+fn phase10_cuda_clone_prompt_creation_requested_f16_succeeds() {
+    let _guard = acquire_gpu_test_lock().unwrap();
+    let pipeline = Phase3Pipeline::from_options(
+        RuntimeOptions::new(model_root())
+            .with_device(DeviceSpec::Cuda(0))
+            .with_dtype(DTypeSpec::F16)
+            .with_seed(1234),
+    )
+    .unwrap();
+
+    let prompt = pipeline
+        .create_voice_clone_prompt_from_audio(
+            &ReferenceAudioInput::from_path(ref_audio_path().display().to_string()),
+            Some("State-of-the-art text-to-speech model for 600+ languages, supporting"),
+            true,
+            None,
+        )
+        .unwrap();
+
+    assert!(prompt.ref_audio_tokens.dims().1 > 0);
+}
+
+#[test]
 fn phase10_cuda_clone_with_user_ref_text_does_not_trim_long_reference_audio() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let reference = DecodedAudio::read_wav(ref_audio_path()).unwrap();
@@ -197,6 +220,53 @@ fn phase10_cuda_batch_request_preserves_order() {
 }
 
 #[test]
+fn phase10_cuda_mixed_batch_live_audio_matches_token_decode_path() {
+    let _guard = acquire_gpu_test_lock().unwrap();
+    let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
+    let auto_case = bundle.case_by_id("det_auto_en_short").unwrap();
+    let auto_request = auto_case.build_generation_request().unwrap();
+    let mut long_request = auto_case.build_generation_request().unwrap();
+    long_request.durations = vec![Some(31.0)];
+    let pipeline = cuda_f32_pipeline();
+
+    let mut request = GenerationRequest::new_text_only(auto_request.texts[0].clone());
+    request.texts = vec![auto_request.texts[0].clone(), long_request.texts[0].clone()];
+    request.languages = vec![
+        auto_request.languages[0].clone(),
+        long_request.languages[0].clone(),
+    ];
+    request.instructs = vec![
+        auto_request.instructs[0].clone(),
+        long_request.instructs[0].clone(),
+    ];
+    request.ref_texts = vec![None, None];
+    request.ref_audios = vec![None, None];
+    request.voice_clone_prompts = vec![None, None];
+    request.speeds = vec![auto_request.speeds[0], long_request.speeds[0]];
+    request.durations = vec![auto_request.durations[0], long_request.durations[0]];
+    request.generation_config = auto_request.generation_config.clone();
+
+    let actual = pipeline.generate(&request).unwrap();
+    let generated = pipeline.generate_tokens(&request).unwrap();
+    let expected = generated
+        .iter()
+        .map(|tokens| {
+            pipeline.stage1().decode_final(
+                tokens,
+                None,
+                request.generation_config.postprocess_output,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(actual.len(), 2);
+    assert_eq!(expected.len(), 2);
+    assert_eq!(actual[0], expected[0]);
+    assert_eq!(actual[1], expected[1]);
+}
+
+#[test]
 fn phase10_cuda_stage0_only_paths_do_not_eager_load_stage1() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let pipeline = cuda_f32_pipeline();
@@ -222,7 +292,7 @@ fn phase10_cuda_auto_device_dtype_prioritize_gpu() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let pipeline = auto_pipeline();
     assert!(pipeline.stage0().device().is_cuda());
-    assert_eq!(pipeline.stage0().runtime_dtype(), DType::F16);
+    assert_eq!(pipeline.stage0().runtime_dtype(), DType::F32);
 
     let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
     let case = bundle.case_by_id("det_auto_en_short").unwrap();
@@ -230,6 +300,6 @@ fn phase10_cuda_auto_device_dtype_prioritize_gpu() {
     let actual = pipeline.generate(&request).unwrap();
     let expected = case.load_final_audio().unwrap();
     assert_audio_matches_reference_with_frame_tolerance(
-        &actual[0], &expected, 20_000, 3.0e-2, 5.0e-2, 0.55,
+        &actual[0], &expected, 480, 5.0e-4, 8.0e-4, 0.05,
     );
 }

@@ -19,6 +19,16 @@ fn cuda_f32_pipeline() -> Phase3Pipeline {
     .unwrap()
 }
 
+#[cfg(feature = "cuda")]
+fn cuda_f16_pipeline() -> Phase3Pipeline {
+    Phase3Pipeline::from_options(
+        RuntimeOptions::new(model_root())
+            .with_device(DeviceSpec::Cuda(0))
+            .with_dtype(DTypeSpec::F16),
+    )
+    .unwrap()
+}
+
 #[test]
 fn stage1_loader_discovers_expected_quantizer_indices() {
     let _guard = acquire_gpu_test_lock().unwrap();
@@ -244,6 +254,26 @@ fn debug_stage1_cuda_final_matches_reference_waveform() {
     assert!(metrics.mae < 2.0e-5, "{metrics:?}");
     assert!(metrics.rmse < 3.0e-5, "{metrics:?}");
     assert!(metrics.max_abs < 5.0e-4, "{metrics:?}");
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+fn debug_stage1_cuda_requested_f16_does_not_collapse_to_silence() {
+    let _guard = acquire_gpu_test_lock().unwrap();
+    let pipeline = cuda_f16_pipeline();
+    let actual = pipeline
+        .decode_stage1_final_from_reference_case(reference_root(), "debug_auto_en_short")
+        .unwrap();
+
+    let peak = actual
+        .samples
+        .iter()
+        .fold(0.0_f32, |peak, sample| peak.max(sample.abs()));
+
+    assert!(
+        peak > 1.0e-3,
+        "stage1 CUDA requested f16 collapsed to silence, peak={peak}"
+    );
 }
 
 #[cfg(feature = "cuda")]

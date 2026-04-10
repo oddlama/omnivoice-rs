@@ -1,5 +1,7 @@
+#[cfg(test)]
 use std::path::PathBuf;
 
+#[cfg(test)]
 pub(crate) fn omnivoice_root() -> PathBuf {
     if let Some(root) = std::env::var_os("OMNIVOICE_ROOT") {
         return PathBuf::from(root);
@@ -21,10 +23,6 @@ pub(crate) fn omnivoice_root() -> PathBuf {
     }
 
     cwd
-}
-
-pub(crate) fn model_root() -> PathBuf {
-    omnivoice_root().join("model")
 }
 
 #[cfg(test)]

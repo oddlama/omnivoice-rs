@@ -26,12 +26,6 @@ use crate::{
     stage1_decoder::{PreparedStage1Decode, Stage1DebugRun, Stage1RuntimePlan},
 };
 
-#[derive(Clone)]
-enum GeneratedTensorTokens {
-    Single(Tensor),
-    Chunked(Vec<Tensor>),
-}
-
 struct MaterializedDeviceRequest {
     request: GenerationRequest,
     device_voice_clone_prompts: Vec<Option<DeviceVoiceClonePrompt>>,
@@ -80,9 +74,9 @@ impl Phase3Pipeline {
     }
 
     pub fn load_asr_model(&self, model_name: Option<&str>) -> Result<()> {
-        let requested = model_name
-            .map(str::to_string)
-            .unwrap_or_else(crate::asr::default_asr_model_spec);
+        let requested = model_name.map(str::to_string).unwrap_or_else(|| {
+            crate::asr::default_asr_model_spec(Some(self.runtime_artifacts.model_root()))
+        });
         let mut guard = self.asr.lock().unwrap_or_else(|poison| poison.into_inner());
         let needs_reload = guard
             .as_ref()
@@ -540,40 +534,41 @@ impl Phase3Pipeline {
             let short_task = task.slice_task(&short_idx);
             let short_results = self.generate_iterative_task_device(&short_task)?;
             for (slot, generated) in short_idx.into_iter().zip(short_results) {
-                results[slot] = Some(GeneratedTensorTokens::Single(generated));
+                // Materialize device results immediately so later Metal batch runs do not retain
+                // live token tensors from earlier sub-batches.
+                let generated = GeneratedTokens::Single(tensor_to_i64_tensor2(&generated)?);
+                results[slot] = Some(self.stage1.decode_final(
+                    &generated,
+                    task.ref_rms[slot],
+                    task.generation_config.postprocess_output,
+                )?);
             }
         }
         if !long_idx.is_empty() {
             let long_task = task.slice_task(&long_idx);
             let long_results = self.generate_chunked_task_device(&long_task)?;
             for (slot, generated) in long_idx.into_iter().zip(long_results) {
-                results[slot] = Some(GeneratedTensorTokens::Chunked(generated));
+                let generated = GeneratedTokens::Chunked(
+                    generated
+                        .iter()
+                        .map(tensor_to_i64_tensor2)
+                        .collect::<Result<Vec<_>>>()?,
+                );
+                results[slot] = Some(self.stage1.decode_final(
+                    &generated,
+                    task.ref_rms[slot],
+                    task.generation_config.postprocess_output,
+                )?);
             }
         }
         results
             .into_iter()
-            .enumerate()
-            .map(|(index, result)| {
-                let generated = match result.ok_or_else(|| {
+            .map(|result| {
+                result.ok_or_else(|| {
                     crate::error::OmniVoiceError::InvalidData(
                         "live generation did not produce a result for one of the items".to_string(),
                     )
-                })? {
-                    GeneratedTensorTokens::Single(tokens) => {
-                        GeneratedTokens::Single(tensor_to_i64_tensor2(&tokens)?)
-                    }
-                    GeneratedTensorTokens::Chunked(chunks) => GeneratedTokens::Chunked(
-                        chunks
-                            .iter()
-                            .map(tensor_to_i64_tensor2)
-                            .collect::<Result<Vec<_>>>()?,
-                    ),
-                };
-                self.stage1.decode_final(
-                    &generated,
-                    task.ref_rms[index],
-                    task.generation_config.postprocess_output,
-                )
+                })
             })
             .collect()
     }

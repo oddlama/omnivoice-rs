@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use omnivoice_infer::{DTypeSpec, DeviceSpec, RuntimeOptions};
+use omnivoice_infer::{
+    model_source::resolve_tts_model_root_from_path, DTypeSpec, DeviceSpec, RuntimeOptions,
+};
 use shine_rs::SUPPORTED_BITRATES;
 
 use crate::error::ServerError;
@@ -9,8 +11,8 @@ use crate::error::ServerError;
 #[derive(Debug, Clone, Parser)]
 #[command(name = "omnivoice-server", author = "FerrisMind")]
 pub struct ServerArgs {
-    #[arg(long)]
-    pub model_dir: PathBuf,
+    #[arg(long = "model", alias = "model-dir")]
+    pub model_dir: Option<PathBuf>,
 
     #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
@@ -44,8 +46,10 @@ impl ServerArgs {
     pub fn runtime_options(&self) -> Result<RuntimeOptions, ServerError> {
         let device = DeviceSpec::parse(&self.device).map_err(ServerError::from)?;
         let dtype = DTypeSpec::parse(&self.dtype).map_err(ServerError::from)?;
+        let model_root = resolve_tts_model_root_from_path(self.model_dir.as_deref())
+            .map_err(ServerError::from)?;
 
-        Ok(RuntimeOptions::new(self.model_dir.clone())
+        Ok(RuntimeOptions::new(model_root)
             .with_device(device)
             .with_dtype(dtype))
     }
@@ -80,5 +84,35 @@ impl ServerArgs {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    use super::ServerArgs;
+
+    #[test]
+    fn model_dir_is_optional() {
+        let args =
+            ServerArgs::try_parse_from(["omnivoice-server", "--api-key", "test-key"]).unwrap();
+
+        assert!(args.model_dir.is_none());
+    }
+
+    #[test]
+    fn model_alias_is_accepted() {
+        let args = ServerArgs::try_parse_from([
+            "omnivoice-server",
+            "--api-key",
+            "test-key",
+            "--model",
+            "k2-fsa/OmniVoice",
+        ])
+        .unwrap();
+
+        assert_eq!(args.model_dir, Some(PathBuf::from("k2-fsa/OmniVoice")));
     }
 }

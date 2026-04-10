@@ -9,19 +9,13 @@ use std::{
 };
 
 use candle_core::Device;
-use hf_hub::{
-    api::sync::{Api as HfApi, ApiRepo},
-    Repo, RepoType,
-};
 
 use omnivoice_infer::{
-    artifacts::{
-        ReferenceArtifactBundle, RuntimeArtifactManifest, RuntimeArtifacts,
-        RUNTIME_MANIFEST_FILE_NAME,
-    },
+    artifacts::{ReferenceArtifactBundle, RuntimeArtifacts},
     audio_input::ReferenceAudioProcessor,
     contracts::{GeneratedTokens, GenerationRequest, PreparedPromptSequence, ReferenceAudioInput},
     frontend::Frontend,
+    model_source::{resolve_tts_model_root_from_path, DEFAULT_OMNIVOICE_REPO},
     pipeline::Phase3Pipeline,
     workspace_phase_marker, DTypeSpec, DeviceSpec, OmniVoiceError, RuntimeOptions,
 };
@@ -309,7 +303,7 @@ impl CliCommand {
 }
 
 fn parse_artifacts_validate(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
-    if args.len() < 4 || args[1] != "validate" {
+    if args.len() < 2 || args[1] != "validate" {
         return Err(OmniVoiceError::InvalidRequest(usage()));
     }
 
@@ -343,15 +337,8 @@ fn parse_artifacts_validate(args: &[String]) -> Result<CliCommand, OmniVoiceErro
         }
     }
 
-    let Some(model_dir) = model_dir else {
-        return Err(OmniVoiceError::InvalidRequest(format!(
-            "missing required --model\n{}",
-            usage()
-        )));
-    };
-
     Ok(CliCommand::ArtifactsValidate {
-        model_dir,
+        model_dir: model_arg_or_default(model_dir),
         reference_root,
     })
 }
@@ -491,7 +478,7 @@ fn parse_infer(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
     }
 
     Ok(CliCommand::Infer {
-        model_dir: required_path_arg(model_dir, "--model")?,
+        model_dir: model_arg_or_default(model_dir),
         text: required_string_arg(text, "--text")?,
         output: required_path_arg(output, "--output")?,
         language,
@@ -643,7 +630,7 @@ fn parse_infer_batch(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
     }
 
     Ok(CliCommand::InferBatch {
-        model_dir: required_path_arg(model_dir, "--model")?,
+        model_dir: model_arg_or_default(model_dir),
         test_list: required_path_arg(test_list, "--test-list")?,
         res_dir: required_path_arg(res_dir, "--res-dir")?,
         device,
@@ -724,12 +711,6 @@ fn parse_case_command(args: &[String], prompt: bool) -> Result<CliCommand, OmniV
         }
     }
 
-    let Some(model_dir) = model_dir else {
-        return Err(OmniVoiceError::InvalidRequest(format!(
-            "missing required --model\n{}",
-            usage()
-        )));
-    };
     let Some(reference_root) = reference_root else {
         return Err(OmniVoiceError::InvalidRequest(format!(
             "missing required --reference-root\n{}",
@@ -745,7 +726,7 @@ fn parse_case_command(args: &[String], prompt: bool) -> Result<CliCommand, OmniV
 
     if prompt {
         Ok(CliCommand::PreparePrompt {
-            model_dir,
+            model_dir: model_arg_or_default(model_dir),
             reference_root,
             case,
             device,
@@ -753,7 +734,7 @@ fn parse_case_command(args: &[String], prompt: bool) -> Result<CliCommand, OmniV
         })
     } else {
         Ok(CliCommand::Stage1Prepare {
-            model_dir,
+            model_dir: model_arg_or_default(model_dir),
             reference_root,
             case,
             device,
@@ -831,12 +812,6 @@ fn parse_stage1_decode(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
         }
     }
 
-    let Some(model_dir) = model_dir else {
-        return Err(OmniVoiceError::InvalidRequest(format!(
-            "missing required --model\n{}",
-            usage()
-        )));
-    };
     let Some(reference_root) = reference_root else {
         return Err(OmniVoiceError::InvalidRequest(format!(
             "missing required --reference-root\n{}",
@@ -857,7 +832,7 @@ fn parse_stage1_decode(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
     };
 
     Ok(CliCommand::Stage1Decode {
-        model_dir,
+        model_dir: model_arg_or_default(model_dir),
         reference_root,
         case,
         out,
@@ -932,7 +907,7 @@ fn parse_stage0_generate(args: &[String]) -> Result<CliCommand, OmniVoiceError> 
     }
 
     Ok(CliCommand::Stage0Generate {
-        model_dir: required_path_arg(model_dir, "--model")?,
+        model_dir: model_arg_or_default(model_dir),
         reference_root: required_path_arg(reference_root, "--reference-root")?,
         case: required_string_arg(case, "--case")?,
         out: required_path_arg(out, "--out")?,
@@ -998,7 +973,7 @@ fn parse_stage0_debug(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
     }
 
     Ok(CliCommand::Stage0Debug {
-        model_dir: required_path_arg(model_dir, "--model")?,
+        model_dir: model_arg_or_default(model_dir),
         reference_root: required_path_arg(reference_root, "--reference-root")?,
         case: required_string_arg(case, "--case")?,
         device,
@@ -1007,76 +982,7 @@ fn parse_stage0_debug(args: &[String]) -> Result<CliCommand, OmniVoiceError> {
 }
 
 fn resolve_model_root(model: &Path) -> Result<PathBuf, OmniVoiceError> {
-    if model.exists() {
-        return Ok(model.to_path_buf());
-    }
-    let model_spec = model.to_string_lossy().trim().to_string();
-    if model_spec.is_empty() {
-        return Err(OmniVoiceError::InvalidRequest(
-            "--model requires a local directory or Hugging Face repo id".to_string(),
-        ));
-    }
-    download_model_snapshot(&model_spec)
-}
-
-fn download_model_snapshot(model_id: &str) -> Result<PathBuf, OmniVoiceError> {
-    let api = HfApi::new().map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
-    let repo = api.repo(Repo::with_revision(
-        model_id.to_string(),
-        RepoType::Model,
-        "main".to_string(),
-    ));
-
-    let manifest_path = repo
-        .get("omnivoice.artifacts.json")
-        .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
-    let snapshot_root = manifest_path.parent().ok_or_else(|| {
-        OmniVoiceError::InvalidData(format!(
-            "hf-hub returned an invalid snapshot path for model {model_id}"
-        ))
-    })?;
-
-    let manifest: RuntimeArtifactManifest =
-        serde_json::from_str(&fs::read_to_string(&manifest_path)?)?;
-    for target in manifest_download_targets(&manifest) {
-        download_repo_file(&repo, &target)?;
-    }
-
-    Ok(snapshot_root.to_path_buf())
-}
-
-fn download_repo_file(repo: &ApiRepo, relative_path: &str) -> Result<PathBuf, OmniVoiceError> {
-    let normalized = relative_path.replace('\\', "/");
-    repo.get(&normalized)
-        .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))
-}
-
-fn manifest_download_targets(manifest: &RuntimeArtifactManifest) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    let mut targets = Vec::new();
-    for path in [
-        Some(manifest.generator.config.as_path()),
-        Some(manifest.generator.weights.as_path()),
-        Some(manifest.text_tokenizer.tokenizer.as_path()),
-        Some(manifest.text_tokenizer.tokenizer_config.as_path()),
-        manifest.text_tokenizer.metadata.chat_template.as_deref(),
-        Some(manifest.audio_tokenizer.config.as_path()),
-        Some(manifest.audio_tokenizer.weights.as_path()),
-        Some(manifest.audio_tokenizer.preprocessor_config.as_path()),
-        manifest.audio_tokenizer.metadata.license.as_deref(),
-    ] {
-        let Some(path) = path else {
-            continue;
-        };
-        let normalized = path.to_string_lossy().replace('\\', "/");
-        if normalized == RUNTIME_MANIFEST_FILE_NAME {
-            continue;
-        }
-        if seen.insert(normalized.clone()) {
-            targets.push(normalized);
-        }
-    }
-    targets
+    resolve_tts_model_root_from_path(Some(model))
 }
 
 fn run_artifacts_validate(
@@ -2031,6 +1937,10 @@ fn join_paths(values: &BTreeSet<String>) -> String {
     values.iter().cloned().collect::<Vec<_>>().join(",")
 }
 
+fn model_arg_or_default(value: Option<PathBuf>) -> PathBuf {
+    value.unwrap_or_else(|| PathBuf::from(DEFAULT_OMNIVOICE_REPO))
+}
+
 fn required_path_arg(value: Option<PathBuf>, name: &str) -> Result<PathBuf, OmniVoiceError> {
     value.ok_or_else(|| {
         OmniVoiceError::InvalidRequest(format!("missing required {name}\n{}", usage()))
@@ -2105,22 +2015,57 @@ fn parse_bool_arg(args: &[String], index: usize, name: &str) -> Result<bool, Omn
 fn usage() -> String {
     [
         "usage:",
-        "  omnivoice-cli artifacts validate --model <path-or-hf-repo> [--reference-root <path>]",
-        "  omnivoice-cli infer --model <path> --text <text> --output <wav> [--language <lang>] [--ref-audio <wav>] [--ref-text <text>] [--instruct <text>] [--duration <seconds>] [--speed <factor>] [--asr-model <model>] [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32] [--seed <u64>]",
-        "  omnivoice-cli infer-batch --model <path-or-hf-repo> --test-list <jsonl> --res-dir <dir> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32] [--batch-size <n>] [--batch-duration <seconds>] [--nj-per-gpu <n>] [--warmup <n>]",
-        "  omnivoice-cli prepare-prompt --model <path-or-hf-repo> --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
-        "  omnivoice-cli stage1-prepare --model <path-or-hf-repo> --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
-        "  omnivoice-cli stage1-decode --model <path-or-hf-repo> --reference-root <path> --case <id> --out <wav> [--raw] [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
-        "  omnivoice-cli stage0-generate --model <path-or-hf-repo> --reference-root <path> --case <id> --out <json> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
-        "  omnivoice-cli stage0-debug --model <path-or-hf-repo> --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
+        "  omnivoice-cli artifacts validate [--model <path-or-hf-repo>] [--reference-root <path>]",
+        "  omnivoice-cli infer [--model <path-or-hf-repo>] --text <text> --output <wav> [--language <lang>] [--ref-audio <wav>] [--ref-text <text>] [--instruct <text>] [--duration <seconds>] [--speed <factor>] [--asr-model <path-or-hf-repo>] [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32] [--seed <u64>]",
+        "  omnivoice-cli infer-batch [--model <path-or-hf-repo>] --test-list <jsonl> --res-dir <dir> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32] [--batch-size <n>] [--batch-duration <seconds>] [--nj-per-gpu <n>] [--warmup <n>]",
+        "  omnivoice-cli prepare-prompt [--model <path-or-hf-repo>] --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
+        "  omnivoice-cli stage1-prepare [--model <path-or-hf-repo>] --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
+        "  omnivoice-cli stage1-decode [--model <path-or-hf-repo>] --reference-root <path> --case <id> --out <wav> [--raw] [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
+        "  omnivoice-cli stage0-generate [--model <path-or-hf-repo>] --reference-root <path> --case <id> --out <json> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
+        "  omnivoice-cli stage0-debug [--model <path-or-hf-repo>] --reference-root <path> --case <id> [--device auto|cuda:N|metal|cpu] [--dtype auto|f16|bf16|f32]",
     ]
         .join("\n")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::manifest_download_targets;
-    use omnivoice_infer::artifacts::RuntimeArtifactManifest;
+    use super::CliCommand;
+    use omnivoice_infer::{
+        artifacts::RuntimeArtifactManifest, model_source::manifest_download_targets,
+    };
+    use std::path::PathBuf;
+
+    #[test]
+    fn infer_defaults_to_official_repo_when_model_is_omitted() {
+        let command = CliCommand::parse(&[
+            "infer".to_string(),
+            "--text".to_string(),
+            "hello".to_string(),
+            "--output".to_string(),
+            "out.wav".to_string(),
+        ])
+        .unwrap();
+
+        match command {
+            CliCommand::Infer { model_dir, .. } => {
+                assert_eq!(model_dir, PathBuf::from("k2-fsa/OmniVoice"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn artifacts_validate_defaults_to_official_repo_when_model_is_omitted() {
+        let command =
+            CliCommand::parse(&["artifacts".to_string(), "validate".to_string()]).unwrap();
+
+        match command {
+            CliCommand::ArtifactsValidate { model_dir, .. } => {
+                assert_eq!(model_dir, PathBuf::from("k2-fsa/OmniVoice"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 
     #[test]
     fn manifest_download_targets_are_manifest_scoped_and_deduplicated() {

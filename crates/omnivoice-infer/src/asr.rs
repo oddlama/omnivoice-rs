@@ -10,10 +10,16 @@ use hf_hub::{
 };
 use tokenizers::Tokenizer;
 
-use crate::error::{OmniVoiceError, Result};
+use crate::{
+    error::{OmniVoiceError, Result},
+    model_source::DEFAULT_WHISPER_REPO,
+};
 
-const DEFAULT_LOCAL_ASR_MODEL: &str = "model/whisper";
-const DEFAULT_HF_ASR_MODEL: &str = "oxide-lab/whisper-large-v3-turbo-GGUF";
+const DEFAULT_LOCAL_ASR_DIR_NAME: &str = "whisper";
+const DEFAULT_HF_ASR_MODEL: &str = DEFAULT_WHISPER_REPO;
+const DEFAULT_WHISPER_CONFIG_FILE: &str = "config.json";
+const DEFAULT_WHISPER_TOKENIZER_FILE: &str = "tokenizer.json";
+const DEFAULT_WHISPER_Q4_0_FILE: &str = "whisper-base-q4_0.gguf";
 const MEL_FILTERS_80: &[u8] = include_bytes!("../../../tools/whisper/melfilters.bytes");
 const MEL_FILTERS_128: &[u8] = include_bytes!("../../../tools/whisper/melfilters128.bytes");
 
@@ -80,11 +86,10 @@ pub struct WhisperAsr {
 
 impl WhisperAsr {
     pub fn load(model_id_or_path: &str, device: Device) -> Result<Self> {
-        let default_local_model = crate::paths::model_root().join("whisper");
-        let requested = if model_id_or_path.is_empty() {
-            default_local_model.display().to_string()
+        let requested = if model_id_or_path.trim().is_empty() {
+            DEFAULT_HF_ASR_MODEL.to_string()
         } else {
-            model_id_or_path.to_string()
+            model_id_or_path.trim().to_string()
         };
         let (config_path, tokenizer_path, weights_path, quantized) =
             resolve_model_files(&requested)?;
@@ -173,16 +178,17 @@ impl WhisperAsr {
 }
 
 pub fn default_local_asr_model_path() -> &'static str {
-    DEFAULT_LOCAL_ASR_MODEL
+    DEFAULT_LOCAL_ASR_DIR_NAME
 }
 
-pub fn default_asr_model_spec() -> String {
-    let local_path = crate::paths::model_root().join("whisper");
-    if local_path.exists() {
-        local_path.display().to_string()
-    } else {
-        DEFAULT_HF_ASR_MODEL.to_string()
+pub fn default_asr_model_spec(model_root: Option<&Path>) -> String {
+    if let Some(model_root) = model_root {
+        let local_path = model_root.join(DEFAULT_LOCAL_ASR_DIR_NAME);
+        if local_path.exists() {
+            return local_path.display().to_string();
+        }
     }
+    DEFAULT_HF_ASR_MODEL.to_string()
 }
 
 fn resolve_model_files(model_id_or_path: &str) -> Result<(PathBuf, PathBuf, PathBuf, bool)> {
@@ -190,15 +196,15 @@ fn resolve_model_files(model_id_or_path: &str) -> Result<(PathBuf, PathBuf, Path
     if local_path.exists() {
         if let Some(weights) = find_local_whisper_weights(local_path)? {
             return Ok((
-                local_path.join("config.json"),
-                local_path.join("tokenizer.json"),
+                local_path.join(DEFAULT_WHISPER_CONFIG_FILE),
+                local_path.join(DEFAULT_WHISPER_TOKENIZER_FILE),
                 weights,
                 true,
             ));
         }
         return Ok((
-            local_path.join("config.json"),
-            local_path.join("tokenizer.json"),
+            local_path.join(DEFAULT_WHISPER_CONFIG_FILE),
+            local_path.join(DEFAULT_WHISPER_TOKENIZER_FILE),
             local_path.join("model.safetensors"),
             false,
         ));
@@ -212,21 +218,60 @@ fn resolve_model_files(model_id_or_path: &str) -> Result<(PathBuf, PathBuf, Path
     let repo_info = repo
         .info()
         .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
-    let config_name =
-        find_whisper_repo_file(&repo_info.siblings, |path| path.ends_with("config.json"))?;
-    let tokenizer_name =
-        find_whisper_repo_file(&repo_info.siblings, |path| path.ends_with("tokenizer.json"))?;
-    let weights_name = find_remote_whisper_weights(&repo_info.siblings)?;
+    let remote_assets = find_remote_whisper_assets(model_id_or_path, &repo_info.siblings)?;
     let config = repo
-        .get(&config_name)
+        .get(&remote_assets.config)
         .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
     let tokenizer = repo
-        .get(&tokenizer_name)
+        .get(&remote_assets.tokenizer)
         .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
     let weights = repo
-        .get(&weights_name)
+        .get(&remote_assets.weights)
         .map_err(|error| OmniVoiceError::InvalidData(error.to_string()))?;
     Ok((config, tokenizer, weights, true))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WhisperRemoteAssets {
+    config: String,
+    tokenizer: String,
+    weights: String,
+}
+
+fn find_remote_whisper_assets(
+    model_id_or_path: &str,
+    siblings: &[Siblings],
+) -> Result<WhisperRemoteAssets> {
+    if model_id_or_path == DEFAULT_HF_ASR_MODEL {
+        return Ok(WhisperRemoteAssets {
+            config: find_exact_remote_file(siblings, DEFAULT_WHISPER_CONFIG_FILE)?,
+            tokenizer: find_exact_remote_file(siblings, DEFAULT_WHISPER_TOKENIZER_FILE)?,
+            weights: find_exact_remote_file(siblings, DEFAULT_WHISPER_Q4_0_FILE)?,
+        });
+    }
+
+    Ok(WhisperRemoteAssets {
+        config: find_whisper_repo_file(siblings, |path| {
+            path.ends_with(DEFAULT_WHISPER_CONFIG_FILE)
+        })?,
+        tokenizer: find_whisper_repo_file(siblings, |path| {
+            path.ends_with(DEFAULT_WHISPER_TOKENIZER_FILE)
+        })?,
+        weights: find_remote_whisper_weights(siblings)?,
+    })
+}
+
+fn find_exact_remote_file(siblings: &[Siblings], file_name: &str) -> Result<String> {
+    siblings
+        .iter()
+        .map(|sibling| sibling.rfilename.as_str())
+        .find(|path| path == &file_name)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            OmniVoiceError::InvalidData(format!(
+                "remote Whisper repo is missing required Candle file `{file_name}`"
+            ))
+        })
 }
 
 fn find_whisper_repo_file(
@@ -341,7 +386,10 @@ fn mmap_var_builder(
 
 #[cfg(test)]
 mod tests {
-    use super::{find_remote_whisper_weights, resolve_model_files};
+    use super::{
+        default_asr_model_spec, find_remote_whisper_assets, find_remote_whisper_weights,
+        resolve_model_files, DEFAULT_HF_ASR_MODEL,
+    };
     use hf_hub::api::Siblings;
     use std::{
         fs,
@@ -434,5 +482,82 @@ mod tests {
             find_remote_whisper_weights(&fallback_siblings).unwrap(),
             "weights-q8_0.gguf"
         );
+    }
+
+    #[test]
+    fn default_asr_model_spec_prefers_runtime_local_whisper_bundle() {
+        let root = unique_temp_dir("default-local-whisper");
+        let whisper_root = root.join("whisper");
+        fs::create_dir_all(&whisper_root).unwrap();
+
+        assert_eq!(
+            default_asr_model_spec(Some(root.as_path())),
+            whisper_root.display().to_string()
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn default_asr_model_spec_falls_back_to_default_repo_without_local_whisper_bundle() {
+        let root = unique_temp_dir("default-remote-whisper");
+        fs::create_dir_all(&root).unwrap();
+
+        assert_eq!(
+            default_asr_model_spec(Some(root.as_path())),
+            DEFAULT_HF_ASR_MODEL
+        );
+        assert_eq!(default_asr_model_spec(None), DEFAULT_HF_ASR_MODEL);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn default_remote_whisper_repo_requires_exact_candle_files() {
+        let siblings = vec![
+            Siblings {
+                rfilename: "config.json".to_string(),
+            },
+            Siblings {
+                rfilename: "tokenizer.json".to_string(),
+            },
+            Siblings {
+                rfilename: "whisper-base-q4_0.gguf".to_string(),
+            },
+            Siblings {
+                rfilename: "whisper-base-q8_0.gguf".to_string(),
+            },
+            Siblings {
+                rfilename: "whisper.cpp/whisper-base-q4_0.gguf".to_string(),
+            },
+        ];
+
+        let assets = find_remote_whisper_assets(DEFAULT_HF_ASR_MODEL, &siblings).unwrap();
+
+        assert_eq!(assets.config, "config.json");
+        assert_eq!(assets.tokenizer, "tokenizer.json");
+        assert_eq!(assets.weights, "whisper-base-q4_0.gguf");
+    }
+
+    #[test]
+    fn default_remote_whisper_repo_rejects_non_q4_0_fallbacks() {
+        let siblings = vec![
+            Siblings {
+                rfilename: "config.json".to_string(),
+            },
+            Siblings {
+                rfilename: "tokenizer.json".to_string(),
+            },
+            Siblings {
+                rfilename: "whisper-base-q4_1.gguf".to_string(),
+            },
+            Siblings {
+                rfilename: "whisper-base-q8_0.gguf".to_string(),
+            },
+        ];
+
+        let error = find_remote_whisper_assets(DEFAULT_HF_ASR_MODEL, &siblings).unwrap_err();
+
+        assert!(error.to_string().contains("whisper-base-q4_0.gguf"));
     }
 }

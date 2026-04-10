@@ -17,17 +17,11 @@ fn runtime_options_default_to_auto_gpu_first() {
 
     assert_eq!(options.device(), DeviceSpec::Auto);
     assert_eq!(options.dtype(), DTypeSpec::Auto);
-    if device.is_cuda() || device.is_metal() {
-        assert_eq!(
-            options.resolve_dtype_for_runtime_device(&device),
-            DType::F16
-        );
-    } else {
-        assert_eq!(
-            options.resolve_dtype_for_runtime_device(&device),
-            DType::F32
-        );
-    }
+    let _ = device;
+    assert_eq!(
+        options.resolve_dtype_for_runtime_device(&device),
+        DType::F32
+    );
 }
 
 #[test]
