@@ -13,7 +13,7 @@ env:
   OMNIVOICE_MODEL_REPO: k2-fsa/OmniVoice
   OMNIVOICE_WHISPER_REPO: oxide-lab/whisper-large-v3-turbo-GGUF
   OMNIVOICE_FIXTURES_TAG: ci-fixtures-v1
-  OMNIVOICE_FIXTURES_ASSET: omnivoice-ci-fixtures-v1.tar.zst
+  OMNIVOICE_FIXTURES_BASENAME: omnivoice-ci-fixtures-v1.tar.zst
 
 jobs:
   linux-clippy:
@@ -163,8 +163,33 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/omnivoice-fixtures"
           gh release download "$OMNIVOICE_FIXTURES_TAG" \
-            --pattern "$OMNIVOICE_FIXTURES_ASSET" \
+            --pattern "$OMNIVOICE_FIXTURES_BASENAME.part-*" \
+            --pattern "${OMNIVOICE_FIXTURES_BASENAME%.tar.zst}.sha256" \
+            --pattern "${OMNIVOICE_FIXTURES_BASENAME%.tar.zst}.contents.txt" \
             --dir "$RUNNER_TEMP/omnivoice-fixtures"
+
+      - name: Reassemble CI fixtures bundle
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          fixtures_dir = Path(os.environ["RUNNER_TEMP"]) / "omnivoice-fixtures"
+          basename = os.environ["OMNIVOICE_FIXTURES_BASENAME"]
+          target = fixtures_dir / basename
+          parts = sorted(fixtures_dir.glob(f"{basename}.part-*"))
+          if not parts:
+              raise RuntimeError("Missing split CI fixture assets")
+
+          with target.open("wb") as output:
+              for part in parts:
+                  with part.open("rb") as source:
+                      while True:
+                          chunk = source.read(1024 * 1024)
+                          if not chunk:
+                              break
+                          output.write(chunk)
+          PY
 
       - name: Extract CI fixtures bundle
         run: |
@@ -176,7 +201,7 @@ jobs:
           import zstandard
 
           workspace = Path(os.environ["OMNIVOICE_ROOT"])
-          asset_name = os.environ["OMNIVOICE_FIXTURES_ASSET"]
+          asset_name = os.environ["OMNIVOICE_FIXTURES_BASENAME"]
           archive = Path(os.environ["RUNNER_TEMP"]) / "omnivoice-fixtures" / asset_name
 
           with archive.open("rb") as source:
