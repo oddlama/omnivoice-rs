@@ -40,6 +40,7 @@ jobs:
     runs-on: macos-15
     env:
       OMNIVOICE_ROOT: ${{ github.workspace }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
     steps:
       - name: Checkout
@@ -78,12 +79,14 @@ jobs:
           allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
           repo_id = allowlist["repo_id"]
           allow_patterns = allowlist["paths"]
+          token = os.environ["HF_TOKEN"]
 
           snapshot_download(
               repo_id=repo_id,
               repo_type="model",
               allow_patterns=allow_patterns,
               local_dir=model_root,
+              token=token,
           )
           PY
 
@@ -101,7 +104,8 @@ jobs:
           whisper_root.mkdir(parents=True, exist_ok=True)
 
           repo_id = os.environ["OMNIVOICE_WHISPER_REPO"]
-          repo_files = sorted(list_repo_files(repo_id=repo_id, repo_type="model"))
+          token = os.environ["HF_TOKEN"]
+          repo_files = sorted(list_repo_files(repo_id=repo_id, repo_type="model", token=token))
 
           def first_matching(predicate, description):
               for entry in repo_files:
@@ -130,6 +134,7 @@ jobs:
                       repo_id=repo_id,
                       filename=remote_path,
                       repo_type="model",
+                      token=token,
                   )
               )
               shutil.copy2(cached, whisper_root / Path(remote_path).name)
