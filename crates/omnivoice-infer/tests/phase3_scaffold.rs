@@ -39,15 +39,9 @@ fn auto_device_resolution_order_is_gpu_first() {
         order,
         &[DeviceSpec::Cuda(0), DeviceSpec::Metal, DeviceSpec::Cpu]
     );
-    #[cfg(all(
-        feature = "cuda",
-        not(all(feature = "metal", target_os = "macos"))
-    ))]
+    #[cfg(all(feature = "cuda", not(all(feature = "metal", target_os = "macos"))))]
     assert_eq!(order, &[DeviceSpec::Cuda(0), DeviceSpec::Cpu]);
-    #[cfg(all(
-        not(feature = "cuda"),
-        all(feature = "metal", target_os = "macos")
-    ))]
+    #[cfg(all(not(feature = "cuda"), all(feature = "metal", target_os = "macos")))]
     assert_eq!(order, &[DeviceSpec::Metal, DeviceSpec::Cpu]);
     #[cfg(all(
         not(feature = "cuda"),

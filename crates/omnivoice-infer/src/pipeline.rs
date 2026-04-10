@@ -268,7 +268,8 @@ impl Phase3Pipeline {
             .iter()
             .copied()
             .map(|step| case.load_step_capture(step).map(|capture| (step, capture)))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         let reference_final_tokens = match case.load_generated_tokens()? {
             GeneratedTokens::Single(tokens) => tokens,
             GeneratedTokens::Chunked(chunks) => chunks.last().cloned().ok_or_else(|| {
@@ -653,7 +654,8 @@ impl Phase3Pipeline {
                     task.generation_config.audio_chunk_duration,
                 ))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         let has_ref = task
             .ref_audio_tokens
             .iter()
@@ -820,7 +822,8 @@ impl Phase3Pipeline {
                     task.generation_config.audio_chunk_duration,
                 ))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         let has_ref = task
             .ref_audio_tokens
             .iter()
@@ -958,7 +961,8 @@ impl Phase3Pipeline {
                     task.speed[*item_index],
                 ))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         let sub_task = DeviceGenerationTask {
             texts,
             target_lens,
@@ -1281,6 +1285,7 @@ mod tests {
     use super::*;
     use crate::{
         artifacts::ReferenceArtifactBundle,
+        contracts::{I64Tensor2, VoiceClonePrompt},
         runtime::{DTypeSpec, DeviceSpec},
         stage0_loop::pack_cfg_batch,
         stage0_model::Stage0RuntimePlan,
@@ -1333,8 +1338,25 @@ mod tests {
             .prepare_batch(&canonical_inputs, &cond_lens, task.target_lens())
             .unwrap();
 
+        let device_prompts = request
+            .voice_clone_prompts
+            .iter()
+            .map(|prompt| {
+                prompt
+                    .as_ref()
+                    .map(|prompt| {
+                        Ok(DeviceVoiceClonePrompt {
+                            ref_audio_tokens: prompt.ref_audio_tokens.to_candle(stage0.device())?,
+                            ref_text: prompt.ref_text.clone(),
+                            ref_rms: prompt.ref_rms,
+                        })
+                    })
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
         let device_task = frontend
-            .build_task_with_device_prompts(request, &vec![None; request.texts.len()])
+            .build_task_with_device_prompts(request, &device_prompts)
             .unwrap();
         let mut prepared_device = Vec::with_capacity(device_task.batch_size());
         for index in 0..device_task.batch_size() {
@@ -1480,5 +1502,74 @@ mod tests {
         request.generation_config = auto_request.generation_config.clone();
 
         assert_batch_matches_canonical(&request);
+    }
+
+    #[test]
+    fn device_batch_preparation_matches_canonical_for_clone_prompt() {
+        let (frontend, stage0) = cpu_frontend_and_stage0();
+        let num_codebooks = stage0.config().num_audio_codebook;
+        let ref_len = 8usize;
+        let mut prompt_tokens = Vec::with_capacity(num_codebooks * ref_len);
+        for codebook in 0..num_codebooks {
+            for step in 0..ref_len {
+                prompt_tokens.push(((codebook * 17 + step) % 1024) as i64);
+            }
+        }
+
+        let request = GenerationRequest::new_text_only("FerrisMind clone prompt check")
+            .with_voice_clone_prompt(VoiceClonePrompt {
+                ref_audio_tokens: I64Tensor2::new((num_codebooks, ref_len), prompt_tokens).unwrap(),
+                ref_text: "reference text".to_string(),
+                ref_rms: Some(0.1),
+            });
+
+        assert_batch_matches_canonical(&request);
+        let task = frontend.build_task(&request).unwrap();
+        let prompt = frontend.prepare_prompt(&task, 0).unwrap();
+        assert_eq!(
+            prompt.target_start_idx,
+            prompt.prompt.input_ids_dims().2 - prompt.target_length
+        );
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn cuda_live_audio_matches_standalone_for_mixed_short_and_long_batch() {
+        let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
+        let auto_case = bundle.case_by_id("det_auto_en_short").unwrap();
+        let auto_request = auto_case.build_generation_request().unwrap();
+        let mut long_request = auto_case.build_generation_request().unwrap();
+        long_request.durations = vec![Some(31.0)];
+
+        let pipeline = Phase3Pipeline::from_options(
+            RuntimeOptions::new(model_root())
+                .with_device(DeviceSpec::Cuda(0))
+                .with_dtype(DTypeSpec::F32),
+        )
+        .unwrap();
+
+        let mut request = GenerationRequest::new_text_only(auto_request.texts[0].clone());
+        request.texts = vec![auto_request.texts[0].clone(), long_request.texts[0].clone()];
+        request.languages = vec![
+            auto_request.languages[0].clone(),
+            long_request.languages[0].clone(),
+        ];
+        request.instructs = vec![
+            auto_request.instructs[0].clone(),
+            long_request.instructs[0].clone(),
+        ];
+        request.ref_texts = vec![None, None];
+        request.ref_audios = vec![None, None];
+        request.voice_clone_prompts = vec![None, None];
+        request.speeds = vec![auto_request.speeds[0], long_request.speeds[0]];
+        request.durations = vec![auto_request.durations[0], long_request.durations[0]];
+        request.generation_config = auto_request.generation_config.clone();
+
+        let actual = pipeline.generate(&request).unwrap();
+        let expected_auto = pipeline.generate(&auto_request).unwrap();
+        let expected_long = pipeline.generate(&long_request).unwrap();
+
+        assert_eq!(actual[0], expected_auto[0]);
+        assert_eq!(actual[1], expected_long[0]);
     }
 }

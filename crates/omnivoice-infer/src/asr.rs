@@ -282,8 +282,11 @@ fn is_supported_whisper_gguf(path: &str) -> bool {
 
 fn compare_whisper_weight_paths(left: &Path, right: &Path) -> std::cmp::Ordering {
     compare_whisper_weight_names(
-        left.file_name().and_then(|name| name.to_str()).unwrap_or_default(),
-        right.file_name()
+        left.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default(),
+        right
+            .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or_default(),
     )
@@ -339,12 +342,12 @@ fn mmap_var_builder(
 #[cfg(test)]
 mod tests {
     use super::{find_remote_whisper_weights, resolve_model_files};
+    use hf_hub::api::Siblings;
     use std::{
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
-    use hf_hub::api::Siblings;
 
     fn unique_temp_dir(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -365,8 +368,7 @@ mod tests {
         fs::write(root.join("tokenizer.json"), "{}").unwrap();
         fs::write(root.join("weights-q4_1.gguf"), b"gguf").unwrap();
 
-        let (_, _, weights, quantized) =
-            resolve_model_files(root.to_str().unwrap()).unwrap();
+        let (_, _, weights, quantized) = resolve_model_files(root.to_str().unwrap()).unwrap();
 
         assert!(quantized);
         assert_eq!(weights.file_name().unwrap(), "weights-q4_1.gguf");
@@ -383,8 +385,7 @@ mod tests {
         fs::write(root.join("weights-q8_0.gguf"), b"gguf").unwrap();
         fs::write(root.join("weights-q4_0.gguf"), b"gguf").unwrap();
 
-        let (_, _, weights, quantized) =
-            resolve_model_files(root.to_str().unwrap()).unwrap();
+        let (_, _, weights, quantized) = resolve_model_files(root.to_str().unwrap()).unwrap();
 
         assert!(quantized);
         assert_eq!(weights.file_name().unwrap(), "weights-q4_0.gguf");
@@ -400,8 +401,7 @@ mod tests {
         fs::write(root.join("tokenizer.json"), "{}").unwrap();
         fs::write(root.join("model.safetensors"), b"stub").unwrap();
 
-        let (_, _, weights, quantized) =
-            resolve_model_files(root.to_str().unwrap()).unwrap();
+        let (_, _, weights, quantized) = resolve_model_files(root.to_str().unwrap()).unwrap();
 
         assert!(!quantized);
         assert_eq!(weights.file_name().unwrap(), "model.safetensors");

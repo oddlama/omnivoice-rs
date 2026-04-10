@@ -560,7 +560,7 @@ impl Stage0RuntimePlan {
 
         let mut final_tokens = Vec::with_capacity(batch_size);
         for (batch_index, target_len) in prepared.target_lens.iter().copied().enumerate() {
-            final_tokens.push(tokens.i((batch_index, .., 0..target_len))?);
+            final_tokens.push(tokens.i((batch_index, .., 0..target_len))?.contiguous()?);
         }
 
         let debug_capture = if !debug_enabled {

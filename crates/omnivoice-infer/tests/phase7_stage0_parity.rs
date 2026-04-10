@@ -84,10 +84,7 @@ fn phase7_stage0_cuda_f16_chunked_matches_gpu_contract() {
 #[test]
 fn phase7_stage0_cuda_f32_request_auto_matches_reference_tokens() {
     let _guard = acquire_gpu_test_lock().unwrap();
-    let bundle = ReferenceArtifactBundle::from_root(
-        reference_root(),
-    )
-    .unwrap();
+    let bundle = ReferenceArtifactBundle::from_root(reference_root()).unwrap();
     let case = bundle.case_by_id("det_auto_en_short").unwrap();
     let request = case.build_generation_request().unwrap();
     let actual = cuda_f32_pipeline().generate_tokens(&request).unwrap();

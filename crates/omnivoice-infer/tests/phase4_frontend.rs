@@ -11,7 +11,7 @@ use omnivoice_infer::{
     pipeline::Phase3Pipeline,
     runtime::{DTypeSpec, DeviceSpec, RuntimeOptions},
 };
-use support::{model_root, reference_root, ref_audio_path, stage0_reference_root};
+use support::{model_root, ref_audio_path, reference_root, stage0_reference_root};
 
 #[test]
 fn language_resolution_matches_omnivoice_lang_map() {

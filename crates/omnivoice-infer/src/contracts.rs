@@ -469,8 +469,8 @@ pub enum ReferenceAudioInput {
 }
 
 impl ReferenceAudioInput {
-    pub fn from_path(path: impl Into<String>) -> Self {
-        Self::FilePath(path.into())
+    pub fn from_path(path: impl AsRef<Path>) -> Self {
+        Self::FilePath(path.as_ref().to_string_lossy().into_owned())
     }
 }
 

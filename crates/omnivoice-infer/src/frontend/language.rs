@@ -3,8 +3,7 @@ use std::{
     sync::OnceLock,
 };
 
-const LANG_ID_NAME_MAP_TSV: &str =
-    include_str!("lang_id_name_map.tsv");
+const LANG_ID_NAME_MAP_TSV: &str = include_str!("lang_id_name_map.tsv");
 
 static LANG_NAME_TO_ID: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 static LANG_IDS: OnceLock<HashSet<&'static str>> = OnceLock::new();

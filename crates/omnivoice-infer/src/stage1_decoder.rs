@@ -549,7 +549,13 @@ fn audio_to_tensor3(samples: &[f32]) -> Result<F32Tensor3> {
 fn ensure_stage1_tensor(tokens: &Tensor, device: &Device) -> Result<Tensor> {
     let dims = tokens.dims();
     match dims {
-        [_, _] => return tokens.to_device(device)?.unsqueeze(0).map_err(Into::into),
+        [_, _] => {
+            return tokens
+                .to_device(device)?
+                .unsqueeze(0)?
+                .contiguous()
+                .map_err(Into::into)
+        }
         [1, _, _] => {}
         _ => {
             return Err(OmniVoiceError::InvalidTensorShape {
@@ -559,7 +565,7 @@ fn ensure_stage1_tensor(tokens: &Tensor, device: &Device) -> Result<Tensor> {
             })
         }
     }
-    tokens.to_device(device).map_err(Into::into)
+    tokens.to_device(device)?.contiguous().map_err(Into::into)
 }
 
 fn waveform_to_samples(tensor: &Tensor) -> Result<Vec<f32>> {

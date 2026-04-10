@@ -1059,11 +1059,7 @@ fn manifest_download_targets(manifest: &RuntimeArtifactManifest) -> Vec<String> 
         Some(manifest.generator.weights.as_path()),
         Some(manifest.text_tokenizer.tokenizer.as_path()),
         Some(manifest.text_tokenizer.tokenizer_config.as_path()),
-        manifest
-            .text_tokenizer
-            .metadata
-            .chat_template
-            .as_deref(),
+        manifest.text_tokenizer.metadata.chat_template.as_deref(),
         Some(manifest.audio_tokenizer.config.as_path()),
         Some(manifest.audio_tokenizer.weights.as_path()),
         Some(manifest.audio_tokenizer.preprocessor_config.as_path()),

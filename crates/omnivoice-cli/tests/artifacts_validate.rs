@@ -343,10 +343,7 @@ fn stage0_debug_smoke_test() {
 fn infer_cuda_auto_matches_reference_audio() {
     let _guard = acquire_gpu_test_lock().unwrap();
     let binary = env!("CARGO_BIN_EXE_omnivoice-cli");
-    let bundle = ReferenceArtifactBundle::from_root(
-        deterministic_reference_root(),
-    )
-    .unwrap();
+    let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
     let case = bundle.case_by_id("det_auto_en_short").unwrap();
     let request = case.build_generation_request().unwrap();
     let output_path = repo_root()
