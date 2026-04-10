@@ -1,10 +1,5 @@
 name: CI
 
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
-
 permissions:
   contents: read
 
@@ -67,6 +62,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import shutil
           from pathlib import Path
 
           from huggingface_hub import snapshot_download
@@ -88,6 +84,9 @@ jobs:
               local_dir=model_root,
               token=token,
           )
+
+          manifest_source = workspace / ".github" / "ci" / "omnivoice.artifacts.json"
+          shutil.copy2(manifest_source, model_root / "omnivoice.artifacts.json")
           PY
 
       - name: Download Whisper ASR assets
@@ -197,6 +196,7 @@ jobs:
       - name: Validate downloaded inputs
         run: |
           required_files=(
+            "$OMNIVOICE_ROOT/model/omnivoice.artifacts.json"
             "$OMNIVOICE_ROOT/model/model.safetensors"
             "$OMNIVOICE_ROOT/model/audio_tokenizer/model.safetensors"
             "$OMNIVOICE_ROOT/model/whisper/config.json"
