@@ -1,0 +1,352 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create new release"
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/actions/get-tag-name/action.yml"
+      - ".github/actions/windows-setup-cuda/action.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**/Cargo.toml"
+      - "crates/**/*.rs"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  CARGO_TERM_COLOR: always
+  RELEASE_STAGING_PREFIX: omnivoice
+
+jobs:
+  macos-arm64:
+    name: macOS arm64 (Metal)
+    runs-on: macos-14
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --locked --release --features metal -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack artifacts
+        shell: bash
+        run: |
+          ROOT_DIR="$RUNNER_TEMP/${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          mkdir -p "$ROOT_DIR"
+          cp target/release/omnivoice-cli "$ROOT_DIR/"
+          cp target/release/omnivoice-server "$ROOT_DIR/"
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md "$ROOT_DIR/"
+          tar -czvf omnivoice-${{ steps.tag.outputs.name }}-bin-macos-arm64.tar.gz -C "$RUNNER_TEMP" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-macos-arm64.tar.gz
+          name: omnivoice-bin-macos-arm64.tar.gz
+
+  macos-x64:
+    name: macOS x64 (CPU)
+    runs-on: macos-15-intel
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --locked --release -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack artifacts
+        shell: bash
+        run: |
+          ROOT_DIR="$RUNNER_TEMP/${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          mkdir -p "$ROOT_DIR"
+          cp target/release/omnivoice-cli "$ROOT_DIR/"
+          cp target/release/omnivoice-server "$ROOT_DIR/"
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md "$ROOT_DIR/"
+          tar -czvf omnivoice-${{ steps.tag.outputs.name }}-bin-macos-x64.tar.gz -C "$RUNNER_TEMP" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-macos-x64.tar.gz
+          name: omnivoice-bin-macos-x64.tar.gz
+
+  ubuntu-cpu:
+    name: Ubuntu x64 (CPU)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --locked --release -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack artifacts
+        shell: bash
+        run: |
+          ROOT_DIR="$RUNNER_TEMP/${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          mkdir -p "$ROOT_DIR"
+          cp target/release/omnivoice-cli "$ROOT_DIR/"
+          cp target/release/omnivoice-server "$ROOT_DIR/"
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md "$ROOT_DIR/"
+          tar -czvf omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz -C "$RUNNER_TEMP" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz
+          name: omnivoice-bin-ubuntu-x64.tar.gz
+
+  windows-cpu:
+    name: Windows x64 (CPU)
+    runs-on: windows-2022
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        shell: pwsh
+        run: cargo build --locked --release -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack artifacts
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item target\release\omnivoice-cli.exe $root
+          Copy-Item target\release\omnivoice-server.exe $root
+          Copy-Item LICENSE $root
+          Copy-Item THIRD_PARTY_LICENSES.md $root
+          Copy-Item README.md $root
+          Push-Location $env:RUNNER_TEMP
+          7z a -snl "$env:GITHUB_WORKSPACE\omnivoice-${{ steps.tag.outputs.name }}-bin-win-cpu-x64.zip" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          Pop-Location
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-win-cpu-x64.zip
+          name: omnivoice-bin-win-cpu-x64.zip
+
+  windows-cuda:
+    name: Windows x64 (CUDA 13.1)
+    runs-on: windows-2022
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup CUDA Toolkit
+        uses: ./.github/actions/windows-setup-cuda
+        with:
+          cuda_version: "13.1"
+
+      - name: Build release binaries
+        shell: pwsh
+        run: cargo build --locked --release --features cuda -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack release binaries
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item target\release\omnivoice-cli.exe $root
+          Copy-Item target\release\omnivoice-server.exe $root
+          Copy-Item LICENSE $root
+          Copy-Item THIRD_PARTY_LICENSES.md $root
+          Copy-Item README.md $root
+          Push-Location $env:RUNNER_TEMP
+          7z a -snl "$env:GITHUB_WORKSPACE\omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          Pop-Location
+
+      - name: Pack CUDA runtime libraries
+        shell: pwsh
+        run: |
+          $dllRoot = Join-Path $env:RUNNER_TEMP "cuda-13.1-runtime"
+          New-Item -ItemType Directory -Force -Path $dllRoot | Out-Null
+          $patterns = @(
+            "cudart64_*.dll",
+            "cublas64_*.dll",
+            "cublasLt64_*.dll",
+            "nvrtc64_*.dll",
+            "nvrtc-builtins64_*.dll",
+            "nvvm64_*.dll",
+            "culibos*.dll"
+          )
+          foreach ($pattern in $patterns) {
+            Get-ChildItem (Join-Path $env:CUDA_PATH "bin") -Filter $pattern -ErrorAction SilentlyContinue | Copy-Item -Destination $dllRoot -Force
+          }
+          if (-not (Get-ChildItem $dllRoot -ErrorAction SilentlyContinue)) {
+            throw "No CUDA runtime DLLs were collected from $env:CUDA_PATH\\bin"
+          }
+          7z a -snl "cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip" $dllRoot\*
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip
+          name: omnivoice-bin-win-cuda-13.1-x64.zip
+
+      - name: Upload CUDA runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip
+          name: cudart-omnivoice-bin-win-cuda-13.1-x64.zip
+
+  release:
+    name: Draft release
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.create_release == 'true' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    needs:
+      - macos-arm64
+      - macos-x64
+      - ubuntu-cpu
+      - windows-cpu
+      - windows-cuda
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifact
+          merge-multiple: true
+
+      - name: Move artifacts
+        shell: bash
+        run: |
+          mkdir -p release
+          mv -v artifact/*.zip release
+          mv -v artifact/*.tar.gz release
+
+      - name: Create release
+        id: create_release
+        uses: ggml-org/action-create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          body: |
+            <details open>
+
+            ${{ github.event.head_commit.message || 'FerrisMind OmniVoice draft release' }}
+
+            </details>
+
+            **macOS:**
+            - [macOS Apple Silicon (arm64, Metal)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-macos-arm64.tar.gz)
+            - [macOS Intel (x64, CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-macos-x64.tar.gz)
+
+            **Linux:**
+            - [Ubuntu x64 (CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
+
+            **Windows:**
+            - [Windows x64 (CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-win-cpu-x64.zip)
+            - [Windows x64 (CUDA 13.1)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip)
+            - [Windows x64 (CUDA 13.1 DLLs)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-win-cuda-13.1-x64.zip)
+
+      - name: Upload release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const path = require('path');
+            const fs = require('fs');
+            const releaseId = '${{ steps.create_release.outputs.id }}';
+            for (const file of fs.readdirSync('./release')) {
+              if (path.extname(file) === '.zip' || file.endsWith('.tar.gz')) {
+                console.log('uploadReleaseAsset', file);
+                await github.rest.repos.uploadReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: releaseId,
+                  name: file,
+                  data: fs.readFileSync(`./release/${file}`)
+                });
+              }
+            }
