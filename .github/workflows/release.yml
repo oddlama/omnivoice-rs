@@ -8,17 +8,6 @@ on:
         required: true
         type: boolean
         default: true
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/release.yml"
-      - ".github/actions/get-tag-name/action.yml"
-      - ".github/actions/windows-setup-cuda/action.yml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/**/Cargo.toml"
-      - "crates/**/*.rs"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}
@@ -147,6 +136,72 @@ jobs:
           path: omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz
           name: omnivoice-bin-ubuntu-x64.tar.gz
 
+  ubuntu-cuda:
+    name: Ubuntu x64 (CUDA 13.1)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup CUDA Toolkit
+        uses: ./.github/actions/linux-setup-cuda
+        with:
+          cuda_version: "13.1"
+
+      - name: Build release binaries
+        run: cargo build --locked --release --features cuda -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack release binaries
+        shell: bash
+        run: |
+          ROOT_DIR="$RUNNER_TEMP/${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          mkdir -p "$ROOT_DIR"
+          cp target/release/omnivoice-cli "$ROOT_DIR/"
+          cp target/release/omnivoice-server "$ROOT_DIR/"
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md "$ROOT_DIR/"
+          tar -czvf omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz -C "$RUNNER_TEMP" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+
+      - name: Pack CUDA runtime libraries
+        shell: bash
+        run: |
+          DLL_ROOT="$RUNNER_TEMP/cuda-13.1-runtime"
+          mkdir -p "$DLL_ROOT"
+          cp /usr/local/cuda-13.1/targets/x86_64-linux/lib/libcudart.so* "$DLL_ROOT/" || true
+          cp /usr/local/cuda-13.1/targets/x86_64-linux/lib/libcublas.so* "$DLL_ROOT/" || true
+          cp /usr/local/cuda-13.1/targets/x86_64-linux/lib/libcublasLt.so* "$DLL_ROOT/" || true
+          cp /usr/local/cuda-13.1/targets/x86_64-linux/lib/libnvrtc.so* "$DLL_ROOT/" || true
+          cp /usr/local/cuda-13.1/nvvm/lib64/libnvvm.so* "$DLL_ROOT/" || true
+          if ! compgen -G "$DLL_ROOT/*" > /dev/null; then
+            echo "No CUDA runtime shared libraries were collected" >&2
+            exit 1
+          fi
+          tar -czvf cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz -C "$DLL_ROOT" .
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz
+          name: omnivoice-bin-ubuntu-cuda-13.1-x64.tar.gz
+
+      - name: Upload CUDA runtime artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz
+          name: cudart-omnivoice-bin-ubuntu-cuda-13.1-x64.tar.gz
+
   windows-cpu:
     name: Windows x64 (CPU)
     runs-on: windows-2022
@@ -270,7 +325,7 @@ jobs:
 
   release:
     name: Draft release
-    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event.inputs.create_release == 'true' }}
+    if: ${{ github.event.inputs.create_release == 'true' }}
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -278,6 +333,7 @@ jobs:
       - macos-arm64
       - macos-x64
       - ubuntu-cpu
+      - ubuntu-cuda
       - windows-cpu
       - windows-cuda
 
@@ -324,6 +380,8 @@ jobs:
 
             **Linux:**
             - [Ubuntu x64 (CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
+            - [Ubuntu x64 (CUDA 13.1)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz)
+            - [Ubuntu x64 (CUDA 13.1 runtime libs)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/cudart-omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-cuda-13.1-x64.tar.gz)
 
             **Windows:**
             - [Windows x64 (CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-win-cpu-x64.zip)
