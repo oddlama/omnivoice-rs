@@ -18,6 +18,7 @@ runs:
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvcc/windows-x86_64/cuda_nvcc-windows-x86_64-12.6.85-archive.zip"
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvrtc/windows-x86_64/cuda_nvrtc-windows-x86_64-12.6.85-archive.zip"
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-12.6.4.1-archive.zip"
+        curl -O "https://developer.download.nvidia.com/compute/cuda/redist/libcurand/windows-x86_64/libcurand-windows-x86_64-10.3.7.77-archive.zip"
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvtx/windows-x86_64/cuda_nvtx-windows-x86_64-12.6.77-archive.zip"
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/cuda_profiler_api/windows-x86_64/cuda_profiler_api-windows-x86_64-12.6.77-archive.zip"
         curl -O "https://developer.download.nvidia.com/compute/cuda/redist/visual_studio_integration/windows-x86_64/visual_studio_integration-windows-x86_64-12.6.77-archive.zip"
@@ -27,6 +28,7 @@ runs:
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\cuda_nvcc-windows-x86_64-12.6.85-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\cuda_nvrtc-windows-x86_64-12.6.85-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\libcublas-windows-x86_64-12.6.4.1-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
+        xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\libcurand-windows-x86_64-10.3.7.77-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\cuda_nvtx-windows-x86_64-12.6.77-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\cuda_profiler_api-windows-x86_64-12.6.77-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y
         xcopy "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\visual_studio_integration-windows-x86_64-12.6.77-archive\*" "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6" /E /I /H /Y

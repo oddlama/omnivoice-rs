@@ -184,6 +184,7 @@ jobs:
           cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcudart.so* "$DLL_ROOT/" || true
           cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcublas.so* "$DLL_ROOT/" || true
           cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcublasLt.so* "$DLL_ROOT/" || true
+          cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libcurand.so* "$DLL_ROOT/" || true
           cp /usr/local/cuda-12.6/targets/x86_64-linux/lib/libnvrtc.so* "$DLL_ROOT/" || true
           cp /usr/local/cuda-12.6/nvvm/lib64/libnvvm.so* "$DLL_ROOT/" || true
           if ! compgen -G "$DLL_ROOT/*" > /dev/null; then
@@ -307,6 +308,7 @@ jobs:
             "cudart64_*.dll",
             "cublas64_*.dll",
             "cublasLt64_*.dll",
+            "curand64_*.dll",
             "nvrtc64_*.dll",
             "nvrtc-builtins64_*.dll",
             "nvvm64_*.dll",
