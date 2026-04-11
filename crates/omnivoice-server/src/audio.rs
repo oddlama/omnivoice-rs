@@ -1,12 +1,14 @@
-use std::{convert::Infallible, io::Cursor};
+use std::{collections::HashMap, convert::Infallible, io::Cursor, path::Path};
 
 use axum::{
     body::{Body, Bytes},
+    extract::{FromRequest, Multipart, Request},
     http::{header, HeaderValue, Response, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
     },
+    Json,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use futures_util::stream;
@@ -21,6 +23,7 @@ use shine_rs::{encode_pcm_to_mp3, Mp3EncoderConfig, StereoMode};
 use crate::{
     error::ServerError,
     openai::{SpeechRequest, SpeechResponseFormat, SpeechStreamFormat},
+    runtime::AppState,
 };
 
 pub struct ParsedSpeechRequest {
@@ -30,8 +33,63 @@ pub struct ParsedSpeechRequest {
     pub seed_override: Option<u64>,
 }
 
-pub fn parse_speech_request(
-    request: SpeechRequest,
+struct SpeechRequestParts {
+    model: String,
+    input: String,
+    voice: Option<Value>,
+    instructions: Option<String>,
+    response_format: String,
+    speed: Option<f32>,
+    stream_format: Option<String>,
+    extra: HashMap<String, Value>,
+    ref_audio_override: Option<ReferenceAudioInput>,
+}
+
+impl From<SpeechRequest> for SpeechRequestParts {
+    fn from(value: SpeechRequest) -> Self {
+        Self {
+            model: value.model,
+            input: value.input,
+            voice: value.voice,
+            instructions: value.instructions,
+            response_format: value.response_format,
+            speed: value.speed,
+            stream_format: value.stream_format,
+            extra: value.extra,
+            ref_audio_override: None,
+        }
+    }
+}
+
+pub async fn parse_http_speech_request(
+    request: Request,
+    state: &AppState,
+) -> Result<ParsedSpeechRequest, ServerError> {
+    let is_multipart = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .to_ascii_lowercase()
+                .starts_with("multipart/form-data")
+        })
+        .unwrap_or(false);
+
+    let request = if is_multipart {
+        parse_multipart_speech_request(request, state).await?
+    } else {
+        Json::<SpeechRequest>::from_request(request, state)
+            .await
+            .map(|Json(payload)| SpeechRequestParts::from(payload))
+            .map_err(|error| ServerError::validation(error.to_string()))?
+    };
+
+    parse_speech_request(request, &state.config.served_model_id)
+}
+
+fn parse_speech_request(
+    request: SpeechRequestParts,
     served_model_id: &str,
 ) -> Result<ParsedSpeechRequest, ServerError> {
     validate_model_name(&request.model, served_model_id)?;
@@ -77,7 +135,9 @@ pub fn parse_speech_request(
         generation_request.instructs = vec![Some(instruct)];
     }
 
-    if let Some(ref_audio) = request.extra.get("ref_audio") {
+    if let Some(ref_audio) = request.ref_audio_override {
+        generation_request.ref_audios = vec![Some(ref_audio)];
+    } else if let Some(ref_audio) = request.extra.get("ref_audio") {
         generation_request.ref_audios = vec![Some(parse_data_uri_audio(ref_audio)?)];
     }
     let seed_override = parse_optional_u64(&request.extra, "seed")?;
@@ -87,6 +147,95 @@ pub fn parse_speech_request(
         response_format,
         stream_format,
         seed_override,
+    })
+}
+
+async fn parse_multipart_speech_request(
+    request: Request,
+    state: &AppState,
+) -> Result<SpeechRequestParts, ServerError> {
+    let mut multipart = Multipart::from_request(request, state)
+        .await
+        .map_err(|error| ServerError::validation(error.body_text()))?;
+
+    let mut model = None;
+    let mut input = None;
+    let mut voice = None;
+    let mut instructions = None;
+    let mut response_format = "wav".to_string();
+    let mut speed = None;
+    let mut stream_format = None;
+    let mut extra = HashMap::new();
+    let mut ref_audio_override = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ServerError::validation(error.body_text()))?
+    {
+        let name = field
+            .name()
+            .map(str::to_string)
+            .ok_or_else(|| ServerError::validation("multipart field name is missing"))?;
+
+        match name.as_str() {
+            "ref_audio" => {
+                let file_name = field.file_name().map(str::to_string);
+                let content_type = field.content_type().map(str::to_string);
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|error| ServerError::validation(error.body_text()))?;
+                let extension_hint = file_name
+                    .as_deref()
+                    .and_then(extension_from_filename)
+                    .or_else(|| {
+                        content_type
+                            .as_deref()
+                            .and_then(|value| mime_to_extension(value))
+                    });
+                let waveform = load_audio_bytes(bytes.as_ref(), extension_hint)
+                    .map_err(ServerError::from_infer)?;
+                ref_audio_override = Some(ReferenceAudioInput::Waveform(waveform));
+            }
+            "model" => model = Some(read_multipart_text(field).await?),
+            "input" => input = Some(read_multipart_text(field).await?),
+            "voice" => {
+                let raw = read_multipart_text(field).await?;
+                let parsed = serde_json::from_str::<Value>(&raw).unwrap_or(Value::String(raw));
+                voice = Some(parsed);
+            }
+            "instructions" => instructions = Some(read_multipart_text(field).await?),
+            "response_format" => response_format = read_multipart_text(field).await?,
+            "speed" => {
+                speed = Some(parse_multipart_f32(
+                    "speed",
+                    &read_multipart_text(field).await?,
+                )?)
+            }
+            "stream_format" => stream_format = Some(read_multipart_text(field).await?),
+            other => {
+                if field.file_name().is_some() {
+                    return Err(ServerError::validation(format!(
+                        "unsupported multipart file field `{other}`"
+                    )));
+                }
+                let raw = read_multipart_text(field).await?;
+                extra.insert(other.to_string(), parse_multipart_extra_value(other, &raw)?);
+            }
+        }
+    }
+
+    Ok(SpeechRequestParts {
+        model: model.ok_or_else(|| ServerError::validation("model is required"))?,
+        input: input.ok_or_else(|| ServerError::validation("input is required"))?,
+        voice,
+        instructions,
+        response_format,
+        speed,
+        stream_format,
+        extra,
+        ref_audio_override,
     })
 }
 
@@ -209,6 +358,12 @@ fn mime_to_extension(mime: &str) -> Option<&'static str> {
         "audio/mp4" | "audio/m4a" => Some("mp4"),
         _ => None,
     }
+}
+
+fn extension_from_filename(file_name: &str) -> Option<&str> {
+    Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
 }
 
 fn encode_audio(
@@ -389,4 +544,51 @@ fn parse_optional_u64(
                 .ok_or_else(|| ServerError::validation(format!("{key} must be an integer")))
         })
         .transpose()
+}
+
+async fn read_multipart_text(
+    field: axum::extract::multipart::Field<'_>,
+) -> Result<String, ServerError> {
+    field
+        .text()
+        .await
+        .map_err(|error| ServerError::validation(error.body_text()))
+}
+
+fn parse_multipart_extra_value(name: &str, raw: &str) -> Result<Value, ServerError> {
+    match name {
+        "duration"
+        | "guidance_scale"
+        | "t_shift"
+        | "layer_penalty_factor"
+        | "position_temperature"
+        | "class_temperature"
+        | "audio_chunk_duration"
+        | "audio_chunk_threshold" => Ok(Value::from(parse_multipart_f64(name, raw)?)),
+        "seed" | "num_step" => Ok(Value::from(parse_multipart_u64(name, raw)?)),
+        "preprocess_prompt" | "postprocess_output" | "denoise" => {
+            Ok(Value::from(parse_multipart_bool(name, raw)?))
+        }
+        _ => Ok(Value::String(raw.to_string())),
+    }
+}
+
+fn parse_multipart_f32(name: &str, raw: &str) -> Result<f32, ServerError> {
+    raw.parse::<f32>()
+        .map_err(|_| ServerError::validation(format!("{name} must be a number")))
+}
+
+fn parse_multipart_f64(name: &str, raw: &str) -> Result<f64, ServerError> {
+    raw.parse::<f64>()
+        .map_err(|_| ServerError::validation(format!("{name} must be a number")))
+}
+
+fn parse_multipart_u64(name: &str, raw: &str) -> Result<u64, ServerError> {
+    raw.parse::<u64>()
+        .map_err(|_| ServerError::validation(format!("{name} must be an integer")))
+}
+
+fn parse_multipart_bool(name: &str, raw: &str) -> Result<bool, ServerError> {
+    raw.parse::<bool>()
+        .map_err(|_| ServerError::validation(format!("{name} must be a boolean")))
 }

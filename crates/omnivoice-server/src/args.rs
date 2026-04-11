@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use clap::Parser;
 use omnivoice_infer::{
@@ -40,6 +40,12 @@ pub struct ServerArgs {
 
     #[arg(long, default_value_t = 128)]
     pub mp3_bitrate_kbps: u32,
+
+    #[arg(long, default_value = "")]
+    pub base_path: String,
+
+    #[arg(long, default_value_t = 300)]
+    pub request_timeout_secs: u64,
 }
 
 impl ServerArgs {
@@ -74,6 +80,11 @@ impl ServerArgs {
                 self.mp3_bitrate_kbps, SUPPORTED_BITRATES
             )));
         }
+        if self.request_timeout_secs == 0 {
+            return Err(ServerError::validation(
+                "request_timeout_secs must be greater than zero",
+            ));
+        }
         if self
             .api_key
             .as_deref()
@@ -85,6 +96,28 @@ impl ServerArgs {
         }
         Ok(())
     }
+
+    pub fn normalized_base_path(&self) -> String {
+        normalize_base_path(&self.base_path)
+    }
+
+    pub fn request_timeout(&self) -> Duration {
+        Duration::from_secs(self.request_timeout_secs)
+    }
+}
+
+fn normalize_base_path(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return String::new();
+    }
+
+    let with_leading = if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{trimmed}")
+    };
+    with_leading.trim_end_matches('/').to_string()
 }
 
 #[cfg(test)]
@@ -114,5 +147,19 @@ mod tests {
         .unwrap();
 
         assert_eq!(args.model_dir, Some(PathBuf::from("k2-fsa/OmniVoice")));
+    }
+
+    #[test]
+    fn base_path_is_normalized() {
+        let args = ServerArgs::try_parse_from([
+            "omnivoice-server",
+            "--api-key",
+            "test-key",
+            "--base-path",
+            "edge/",
+        ])
+        .unwrap();
+
+        assert_eq!(args.normalized_base_path(), "/edge");
     }
 }

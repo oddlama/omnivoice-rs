@@ -1,44 +1,59 @@
 use axum::{
     extract::DefaultBodyLimit,
-    extract::{Json, State},
+    extract::{Request, State},
     http::{header, HeaderMap},
     response::IntoResponse,
     routing::{get, post},
-    Router,
+    Json, Router,
 };
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    audio::{build_audio_response, parse_speech_request},
+    audio::{build_audio_response, parse_http_speech_request},
     error::ServerError,
-    openai::{HealthResponse, ModelObject, ModelsResponse, SpeechRequest},
-    runtime::AppState,
+    openai::{HealthResponse, ModelObject, ModelsResponse},
+    runtime::{AppState, RuntimeStatus},
 };
 
 pub fn build_router(state: AppState) -> Router {
     let max_body_bytes = state.config.max_body_bytes;
-    Router::new()
+    let base_path = state.config.base_path.clone();
+    let api = Router::new()
         .route("/", get(root))
         .route("/health", get(health))
         .route("/v1/models", get(models))
         .route("/v1/audio/speech", post(audio_speech))
-        .layer(DefaultBodyLimit::max(max_body_bytes))
-        .with_state(state)
+        .layer(DefaultBodyLimit::max(max_body_bytes));
+    let router = if base_path.is_empty() {
+        api
+    } else {
+        Router::new().nest(&base_path, api)
+    };
+    router.layer(cors_layer()).with_state(state)
 }
 
 async fn root() -> impl IntoResponse {
     Json(HealthResponse {
-        status: "ok",
+        status: "ok".to_string(),
         service: "omnivoice-server",
         author: "FerrisMind",
     })
 }
 
-async fn health() -> impl IntoResponse {
-    Json(HealthResponse {
-        status: "ok",
-        service: "omnivoice-server",
-        author: "FerrisMind",
-    })
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    let (status_code, status) = match state.status() {
+        RuntimeStatus::Ready => (axum::http::StatusCode::OK, "ok"),
+        RuntimeStatus::Starting => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "starting"),
+        RuntimeStatus::Failed => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "failed"),
+    };
+    (
+        status_code,
+        Json(HealthResponse {
+            status: status.to_string(),
+            service: "omnivoice-server",
+            author: "FerrisMind",
+        }),
+    )
 }
 
 async fn models(
@@ -59,30 +74,35 @@ async fn models(
 
 async fn audio_speech(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(request): Json<SpeechRequest>,
+    request: Request,
 ) -> Result<impl IntoResponse, ServerError> {
-    authorize(&headers, &state)?;
-    let parsed = parse_speech_request(request, &state.config.served_model_id)?;
+    authorize(request.headers(), &state)?;
+    let parsed = parse_http_speech_request(request, &state).await?;
     let response_format = parsed.response_format;
     let stream_format = parsed.stream_format;
     let seed_override = parsed.seed_override;
     let generation_request = parsed.generation_request;
-    let runtime = state.runtime.clone();
+    let runtime = state
+        .runtime()
+        .ok_or_else(|| ServerError::service_unavailable("runtime is not ready"))?;
+    let request_timeout = state.config.request_timeout;
     let permit = state
         .limiter
-        .acquire()
+        .clone()
+        .acquire_owned()
         .await
         .map_err(|_| ServerError::internal("request limiter is closed"))?;
-
-    let result = tokio::task::spawn_blocking(move || {
+    let handle = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         if let Some(seed) = seed_override {
             runtime.set_seed(seed)?;
         }
         runtime.synthesize(generation_request)
-    })
-    .await??;
-    drop(permit);
+    });
+    let result = match tokio::time::timeout(request_timeout, handle).await {
+        Ok(result) => result??,
+        Err(_) => return Err(ServerError::request_timeout("request timed out")),
+    };
 
     build_audio_response(
         result,
@@ -108,4 +128,15 @@ fn authorize(headers: &HeaderMap, state: &AppState) -> Result<(), ServerError> {
         return Err(ServerError::unauthorized("invalid API key"));
     }
     Ok(())
+}
+
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }

@@ -7,7 +7,7 @@ authors.workspace = true
 
 [dependencies]
 omnivoice-infer = { path = "../omnivoice-infer" }
-axum = "0.8.8"
+axum = { version = "0.8.8", features = ["multipart"] }
 base64 = "0.22.1"
 clap = { version = "4.6.0", features = ["derive", "env"] }
 futures-util = "0.3.31"
@@ -15,7 +15,8 @@ hound.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shine-rs = "0.1.3"
-tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "sync"] }
+tokio = { version = "1.48.0", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower-http = { version = "0.6.2", features = ["cors"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 

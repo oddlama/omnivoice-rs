@@ -131,6 +131,13 @@ Use this when you want to process multiple samples under one runtime configurati
 - `GET /v1/models`
 - `POST /v1/audio/speech`
 
+Operational behavior:
+
+- `GET /health` returns `200` only after the runtime is ready to serve synthesis requests
+- during startup failures or model loading, `GET /health` returns `503`
+- all routes can be mounted behind `--base-path`
+- browser preflight requests are supported via CORS and `OPTIONS`
+
 Authentication:
 
 - required via `Authorization: Bearer <token>`
@@ -144,6 +151,8 @@ cargo run -p omnivoice-server -- `
   --model model `
   --host 127.0.0.1 `
   --port 8000 `
+  --base-path /edge `
+  --request-timeout-secs 300 `
   --device auto `
   --dtype auto
 ```
@@ -156,6 +165,13 @@ Base request fields:
 - `input`
 - `voice`
 - `response_format`
+
+Transport:
+
+- `application/json`
+- `multipart/form-data`
+
+For multipart requests, `ref_audio` can be uploaded as a real file instead of a base64 data URI.
 
 Supported `response_format` values:
 
@@ -186,6 +202,12 @@ Optional request extensions accepted by this server:
 - `audio_chunk_threshold`
 - `stream_format`
 
+Multipart notes:
+
+- `ref_audio` is accepted as an uploaded audio file and decoded through the existing OmniVoice audio loader
+- JSON requests remain backward-compatible and still accept `ref_audio` as a base64 data URI
+- `voice` is accepted for OpenAI-shape compatibility but does not currently select a server-side voice catalog
+
 Example request:
 
 ```json
@@ -199,6 +221,20 @@ Example request:
   "instruct": "female, low pitch, british accent",
   "num_step": 16
 }
+```
+
+Example multipart request:
+
+```bash
+curl http://127.0.0.1:8000/v1/audio/speech \
+  -H "Authorization: Bearer local-dev-token" \
+  -F model=default \
+  -F input="hello" \
+  -F voice=alloy \
+  -F language=en \
+  -F ref_text="reference text" \
+  -F ref_audio=@ref.wav \
+  -F response_format=wav
 ```
 
 Server behavior is tested against the OpenAI-compatible surface in [crates/omnivoice-server/tests/openai_server.rs](../crates/omnivoice-server/tests/openai_server.rs).

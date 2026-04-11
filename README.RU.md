@@ -72,6 +72,8 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 - Stage0 и Stage1 parity harness против официальных reference-артефактов OmniVoice
 - Voice clone, voice design, auto voice, batch и long-form chunked inference
 - CLI-команды `prepare-prompt`, `stage0-debug`, `stage1-decode` и `infer`
+- Отдельный `omnivoice-server` с `/`, `/health`, `/v1/models` и `/v1/audio/speech`
+- Серверный readiness-статус, монтирование под base path, CORS/OPTIONS и поддержка JSON или multipart для TTS-запросов
 
 ### Аппаратное ускорение
 

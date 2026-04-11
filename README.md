@@ -84,7 +84,8 @@ cargo run -p omnivoice-server --features cuda -- `
 - Stage0 and Stage1 parity harnesses against official OmniVoice references
 - Voice clone, voice design, auto voice, batch, and long-form chunked inference
 - CLI workflows for `prepare-prompt`, `stage0-debug`, `stage1-decode`, and `infer`
-- Separate `omnivoice-server` binary with `/v1/models` and `/v1/audio/speech`
+- Separate `omnivoice-server` binary with `/`, `/health`, `/v1/models`, and `/v1/audio/speech`
+- Server-side readiness reporting, base-path mounting, CORS/OPTIONS, and JSON or multipart request support for TTS
 
 ### Hardware Acceleration
 

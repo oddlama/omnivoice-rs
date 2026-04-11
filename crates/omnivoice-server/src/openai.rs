@@ -50,7 +50,7 @@ pub struct ModelObject {
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
-    pub status: &'static str,
+    pub status: String,
     pub service: &'static str,
     pub author: &'static str,
 }

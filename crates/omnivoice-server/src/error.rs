@@ -28,6 +28,14 @@ struct ErrorBody<'a> {
 }
 
 impl ServerError {
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "server_error", message)
+    }
+
+    pub fn request_timeout(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::REQUEST_TIMEOUT, "server_error", message)
+    }
+
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::new(StatusCode::UNAUTHORIZED, "authentication_error", message)
     }

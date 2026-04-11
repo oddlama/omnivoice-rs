@@ -1283,7 +1283,7 @@ mod tests {
         contracts::{I64Tensor2, VoiceClonePrompt},
         runtime::{DTypeSpec, DeviceSpec},
         stage0_loop::pack_cfg_batch,
-        stage0_model::Stage0RuntimePlan,
+        stage0_model::{Stage0DeterministicConfig, Stage0RuntimePlan},
     };
 
     fn repo_root() -> std::path::PathBuf {
@@ -1306,16 +1306,109 @@ mod tests {
     }
 
     fn cpu_frontend_and_stage0() -> (Frontend, Stage0RuntimePlan) {
-        let options = RuntimeOptions::new(model_root())
+        cpu_frontend_and_stage0_with_seed(Some(1234))
+    }
+
+    fn cpu_frontend_and_stage0_with_seed(seed: Option<u64>) -> (Frontend, Stage0RuntimePlan) {
+        let mut options = RuntimeOptions::new(model_root())
             .with_device(DeviceSpec::Cpu)
-            .with_dtype(DTypeSpec::F32)
-            .with_seed(1234);
+            .with_dtype(DTypeSpec::F32);
+        if let Some(seed) = seed {
+            options = options.with_seed(seed);
+        }
         let runtime = RuntimeArtifacts::from_model_root(model_root()).unwrap();
         let frontend = Frontend::from_runtime_artifacts(&runtime).unwrap();
         let stage0 =
             Stage0RuntimePlan::from_runtime_artifacts_with_device(options, &runtime, Device::Cpu)
                 .unwrap();
         (frontend, stage0)
+    }
+
+    fn prepare_cpu_stage0_batch(
+        request: &GenerationRequest,
+        seed: Option<u64>,
+    ) -> (Stage0RuntimePlan, crate::contracts::PreparedInferenceBatch) {
+        let (frontend, stage0) = cpu_frontend_and_stage0_with_seed(seed);
+        let task = frontend.build_task(request).unwrap();
+        let mut prepared = Vec::with_capacity(task.batch_size());
+        let mut cond_lens = Vec::with_capacity(task.batch_size());
+        for index in 0..task.batch_size() {
+            let prompt = frontend.prepare_prompt(&task, index).unwrap();
+            cond_lens.push(prompt.total_length);
+            prepared.push(prompt);
+        }
+        let batched = pack_cfg_batch(&prepared, task.target_lens()).unwrap();
+        let prepared = stage0
+            .prepare_batch(&batched, &cond_lens, task.target_lens())
+            .unwrap();
+        (stage0, prepared)
+    }
+
+    fn stochastic_stage0_config() -> Stage0DeterministicConfig {
+        Stage0DeterministicConfig {
+            num_step: 4,
+            guidance_scale: 2.0,
+            t_shift: 0.1,
+            layer_penalty_factor: 5.0,
+            position_temperature: 1.0,
+            class_temperature: 0.7,
+            capture_steps: Vec::new(),
+            capture_layers: Vec::new(),
+            capture_final_hidden: false,
+        }
+    }
+
+    fn auto_request_for_seed_test() -> GenerationRequest {
+        let bundle = ReferenceArtifactBundle::from_root(deterministic_reference_root()).unwrap();
+        bundle
+            .case_by_id("det_auto_en_short")
+            .unwrap()
+            .build_generation_request()
+            .unwrap()
+    }
+
+    #[test]
+    fn cpu_stage0_seed_from_options_makes_stochastic_generation_repeatable() {
+        let request = auto_request_for_seed_test();
+        let config = stochastic_stage0_config();
+        let (stage0, prepared) = prepare_cpu_stage0_batch(&request, Some(42));
+        let first = stage0
+            .generate_deterministic(&prepared, &config, &[])
+            .unwrap();
+        let second = stage0
+            .generate_deterministic(&prepared, &config, &[])
+            .unwrap();
+
+        assert_eq!(first.tokens, second.tokens);
+    }
+
+    #[test]
+    fn cpu_stage0_set_seed_makes_stochastic_generation_repeatable() {
+        let request = auto_request_for_seed_test();
+        let config = stochastic_stage0_config();
+        let (stage0, prepared) = prepare_cpu_stage0_batch(&request, None);
+        stage0.set_seed(42).unwrap();
+        let first = stage0
+            .generate_deterministic(&prepared, &config, &[])
+            .unwrap();
+        let second = stage0
+            .generate_deterministic(&prepared, &config, &[])
+            .unwrap();
+
+        assert_eq!(first.tokens, second.tokens);
+    }
+
+    #[test]
+    fn cpu_stage0_set_seed_accepts_changing_seed_without_error() {
+        let options = RuntimeOptions::new(model_root())
+            .with_device(DeviceSpec::Cpu)
+            .with_dtype(DTypeSpec::F32);
+        let runtime = RuntimeArtifacts::from_model_root(model_root()).unwrap();
+        let stage0 =
+            Stage0RuntimePlan::from_runtime_artifacts_with_device(options, &runtime, Device::Cpu)
+                .unwrap();
+        stage0.set_seed(1).unwrap();
+        stage0.set_seed(2).unwrap();
     }
 
     fn assert_batch_matches_canonical(request: &GenerationRequest) {

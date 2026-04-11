@@ -21,6 +21,7 @@ strsim.workspace = true
 symphonia.workspace = true
 thiserror.workspace = true
 tokenizers.workspace = true
+rand.workspace = true
 mistralrs-audio = { workspace = true, optional = true }
 mistralrs-quant.workspace = true
 unicode-general-category.workspace = true

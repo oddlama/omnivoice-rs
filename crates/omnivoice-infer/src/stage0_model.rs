@@ -2,11 +2,12 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
 };
 
 use candle_core::{DType, Device, IndexOp, Module, Tensor};
 use candle_nn::{Embedding, Linear, VarBuilder};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use safetensors::SafeTensors;
 use serde::Deserialize;
 
@@ -264,6 +265,7 @@ pub struct Stage0RuntimePlan {
     device: Device,
     runtime_dtype: DType,
     model: OnceLock<std::result::Result<Stage0Model, String>>,
+    cpu_seed: Mutex<Option<u64>>,
 }
 
 impl Stage0RuntimePlan {
@@ -291,6 +293,7 @@ impl Stage0RuntimePlan {
             weight_layout: Stage0WeightLayout::from_artifacts(runtime.generator())?,
             device,
             runtime_dtype,
+            cpu_seed: Mutex::new(options.seed()),
             options,
             model: OnceLock::new(),
         })
@@ -339,7 +342,14 @@ impl Stage0RuntimePlan {
     }
 
     pub fn set_seed(&self, seed: u64) -> Result<()> {
-        self.device.set_seed(seed)?;
+        if self.device.is_cpu() {
+            *self
+                .cpu_seed
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner()) = Some(seed);
+        } else {
+            self.device.set_seed(seed)?;
+        }
         Ok(())
     }
 
@@ -420,9 +430,23 @@ impl Stage0RuntimePlan {
         config: &Stage0DeterministicConfig,
         capture_steps: &[usize],
     ) -> Result<Stage0DeviceGenerationOutput> {
-        if let Some(seed) = self.options.seed() {
-            self.device.set_seed(seed)?;
+        let seed = *self
+            .cpu_seed
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(seed) = seed {
+            if !self.device.is_cpu() {
+                self.device.set_seed(seed)?;
+            }
         }
+        let mut cpu_rng = self.device.is_cpu().then(|| {
+            if let Some(seed) = seed {
+                StdRng::seed_from_u64(seed)
+            } else {
+                let mut rng = rand::rng();
+                StdRng::from_rng(&mut rng)
+            }
+        });
         let batch_size = prepared.target_lens.len();
         let debug_enabled = !capture_steps.is_empty();
         if batch_size != 1 && debug_enabled {
@@ -502,6 +526,7 @@ impl Stage0RuntimePlan {
                         config.guidance_scale,
                         config.class_temperature,
                         self.config.audio_mask_id as usize,
+                        cpu_rng.as_mut(),
                     )?;
                 let current_tokens_view =
                     tokens.i((batch_index..batch_index + 1, .., 0..target_len))?;
@@ -513,6 +538,7 @@ impl Stage0RuntimePlan {
                     batch_schedule[step],
                     &layer_penalties,
                     config.position_temperature,
+                    cpu_rng.as_mut(),
                 )?;
                 tokens = tokens.slice_assign(
                     &[
@@ -749,6 +775,7 @@ fn predict_tokens_with_scoring_from_tensors(
     guidance_scale: f32,
     class_temperature: f32,
     audio_mask_id: usize,
+    cpu_rng: Option<&mut StdRng>,
 ) -> Result<(Tensor, Tensor)> {
     let log_probs = if guidance_scale != 0.0 {
         let c_log_probs = candle_nn::ops::log_softmax(c_logits, candle_core::D::Minus1)?;
@@ -759,6 +786,12 @@ fn predict_tokens_with_scoring_from_tensors(
         candle_nn::ops::log_softmax(c_logits, candle_core::D::Minus1)?
     };
     let log_probs = mask_audio_token(&log_probs, audio_mask_id)?;
+    if log_probs.device().is_cpu() && class_temperature > 0.0 {
+        let filtered = filter_top_k(&log_probs, 0.1)?;
+        let pred_tokens = gumbel_argmax_cpu(&filtered, class_temperature, cpu_rng)?;
+        let confidence_scores = log_probs.max(candle_core::D::Minus1)?;
+        return Ok((pred_tokens, confidence_scores.to_dtype(DType::F32)?));
+    }
     let pred_tokens = if class_temperature > 0.0 {
         let filtered = filter_top_k(&log_probs, 0.1)?;
         gumbel_argmax(&filtered, class_temperature)?
@@ -803,15 +836,73 @@ fn mask_audio_token(log_probs: &Tensor, audio_mask_id: usize) -> Result<Tensor> 
 }
 
 fn filter_top_k(logits: &Tensor, ratio: f32) -> Result<Tensor> {
+    let logits = logits.contiguous()?;
     let vocab_size = logits.dim(candle_core::D::Minus1)?;
     let top_k = ((ratio * vocab_size as f32).ceil() as usize).clamp(1, vocab_size);
-    let sorted_indices = logits.arg_sort_last_dim(false)?;
-    let top_indices = sorted_indices.narrow(candle_core::D::Minus1, 0, top_k)?;
-    let top_values = logits.gather(&top_indices, candle_core::D::Minus1)?;
+    let sorted_indices = logits.arg_sort_last_dim(false)?.contiguous()?;
+    let top_indices = sorted_indices
+        .narrow(candle_core::D::Minus1, 0, top_k)?
+        .contiguous()?;
+    let top_values = logits
+        .gather(&top_indices, candle_core::D::Minus1)?
+        .contiguous()?;
     let masked = Tensor::full(f32::NEG_INFINITY, logits.shape().dims(), logits.device())?;
     masked
         .scatter(&top_indices, &top_values, candle_core::D::Minus1)
         .map_err(Into::into)
+}
+
+fn with_rng<T>(
+    cpu_rng: Option<&mut StdRng>,
+    f: impl FnOnce(&mut StdRng) -> Result<T>,
+) -> Result<T> {
+    match cpu_rng {
+        Some(rng) => f(rng),
+        None => {
+            let mut seed_src = rand::rng();
+            let mut rng = StdRng::from_rng(&mut seed_src);
+            f(&mut rng)
+        }
+    }
+}
+
+fn sample_gumbel<R: Rng + ?Sized>(rng: &mut R) -> f32 {
+    let uniform = rng.random::<f32>().clamp(1.0e-10, 1.0 - 1.0e-10);
+    -(-uniform.ln() + 1.0e-10).ln()
+}
+
+fn gumbel_argmax_cpu(
+    logits: &Tensor,
+    temperature: f32,
+    cpu_rng: Option<&mut StdRng>,
+) -> Result<Tensor> {
+    if temperature <= 0.0 {
+        return logits.argmax(candle_core::D::Minus1).map_err(Into::into);
+    }
+    let (batch, layers, steps, vocab) = logits.dims4()?;
+    let device = logits.device().clone();
+    let logits = logits
+        .to_dtype(DType::F32)?
+        .flatten_all()?
+        .to_vec1::<f32>()
+        .map_err(OmniVoiceError::from)?;
+    let mut pred_tokens = Vec::with_capacity(batch * layers * steps);
+    with_rng(cpu_rng, |rng| {
+        for row in logits.chunks_exact(vocab) {
+            let mut best_index = 0usize;
+            let mut best_score = f32::NEG_INFINITY;
+            for (index, value) in row.iter().enumerate() {
+                let score = (*value / temperature) + sample_gumbel(rng);
+                if score > best_score {
+                    best_score = score;
+                    best_index = index;
+                }
+            }
+            pred_tokens.push(best_index as i64);
+        }
+        Ok(())
+    })?;
+    Tensor::from_vec(pred_tokens, (batch, layers, steps), &device).map_err(Into::into)
 }
 
 fn gumbel_argmax(logits: &Tensor, temperature: f32) -> Result<Tensor> {
@@ -846,6 +937,31 @@ fn apply_position_temperature(logits: &Tensor, temperature: f32) -> Result<Tenso
     ((&logits / temperature as f64)? + gumbel_noise).map_err(Into::into)
 }
 
+fn apply_position_temperature_cpu(
+    logits: &Tensor,
+    temperature: f32,
+    cpu_rng: Option<&mut StdRng>,
+) -> Result<Tensor> {
+    if temperature <= 0.0 {
+        return Ok(logits.clone());
+    }
+    let shape = logits.shape().dims().to_vec();
+    let device = logits.device().clone();
+    let logits = logits
+        .to_dtype(DType::F32)?
+        .flatten_all()?
+        .to_vec1::<f32>()
+        .map_err(OmniVoiceError::from)?;
+    let mut values = Vec::with_capacity(logits.len());
+    with_rng(cpu_rng, |rng| {
+        for value in logits {
+            values.push((value / temperature) + sample_gumbel(rng));
+        }
+        Ok(())
+    })?;
+    Tensor::from_vec(values, shape, &device).map_err(Into::into)
+}
+
 fn apply_step_updates_device(
     current_tokens: &Tensor,
     predicted_tokens: &Tensor,
@@ -854,13 +970,18 @@ fn apply_step_updates_device(
     update_count: usize,
     layer_penalties: &Tensor,
     position_temperature: f32,
+    cpu_rng: Option<&mut StdRng>,
 ) -> Result<Tensor> {
     if update_count == 0 {
         return Ok(current_tokens.clone());
     }
     let selection_scores = confidence_scores
         .broadcast_sub(&layer_penalties.broadcast_as(confidence_scores.shape().dims())?)?;
-    let selection_scores = apply_position_temperature(&selection_scores, position_temperature)?;
+    let selection_scores = if selection_scores.device().is_cpu() && position_temperature > 0.0 {
+        apply_position_temperature_cpu(&selection_scores, position_temperature, cpu_rng)?
+    } else {
+        apply_position_temperature(&selection_scores, position_temperature)?
+    };
     let available_mask = current_tokens.eq(mask_id)?;
     let neg_inf = Tensor::full(
         f32::NEG_INFINITY,
