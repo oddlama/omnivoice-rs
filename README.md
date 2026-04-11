@@ -40,7 +40,7 @@ It contains:
 - `docs/contracts` — phase-by-phase behavior contracts
 - `tools` — local reference and support scripts
 
-The project treats CUDA and Metal as primary inference targets. CPU exists only for fallback, explicit offload, preprocessing, and debug materialization.
+The project prefers CUDA and Metal when available, but full OmniVoice inference is available on CPU as well as GPU backends.
 
 ## 🎬 Demo
 
@@ -80,6 +80,7 @@ cargo run -p omnivoice-server --features cuda -- `
 
 - Two-stage OmniVoice inference pipeline in Rust
 - GPU-first runtime selection: CUDA -> Metal -> CPU fallback
+- Full inference paths available on CPU and GPU
 - Stage0 and Stage1 parity harnesses against official OmniVoice references
 - Voice clone, voice design, auto voice, batch, and long-form chunked inference
 - CLI workflows for `prepare-prompt`, `stage0-debug`, `stage1-decode`, and `infer`
@@ -89,15 +90,16 @@ cargo run -p omnivoice-server --features cuda -- `
 
 | Backend | Status | Notes |
 |---------|:------:|-------|
-| CPU | ✅ | Fallback, preprocessing, debug, offload |
-| CUDA (NVIDIA) | ✅ | Primary local validation path |
-| Metal (Apple) | ✅ | Implemented and mirrored in tests |
+| CPU | ✅ | Full inference verified locally; useful for CPU-only runs and debugging |
+| CUDA (NVIDIA) | ✅ | Full inference verified and primary acceleration path |
+| Metal (Apple) | ✅ | GPU backend for macOS; implemented and mirrored in tests |
 
 ## 🛠️ Installation & Setup
 
 ### Prerequisites
 
 - Rust toolchain
+- CPU-only inference works; GPU acceleration is optional
 - For CUDA: NVIDIA GPU and compatible driver/toolkit
 - For Metal: macOS with Metal support
 - Either a local OmniVoice bundle or network access to download models into the Hugging Face cache

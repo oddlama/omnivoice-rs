@@ -39,7 +39,7 @@ Ele contém:
 - `docs/contracts` — contratos de comportamento por fase
 - `tools` — scripts locais de apoio
 
-CUDA e Metal são os backends principais. CPU existe apenas para fallback, offload explícito, preprocessing e materialização de debug.
+CUDA e Metal continuam sendo os backends preferidos de aceleração, mas a inferência completa do OmniVoice está disponível tanto em CPU quanto em GPU.
 
 ## 🎬 Demo
 
@@ -60,6 +60,7 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 
 - Pipeline OmniVoice em dois estágios escrito em Rust
 - Seleção de runtime GPU-first: CUDA -> Metal -> CPU fallback
+- Caminhos completos de inferência disponíveis em CPU e GPU
 - Harnesses de paridade Stage0 e Stage1 contra referências oficiais do OmniVoice
 - Voice clone, voice design, auto voice, batch e inferência chunked para textos longos
 - Fluxos CLI para `prepare-prompt`, `stage0-debug`, `stage1-decode` e `infer`
@@ -68,15 +69,16 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 
 | Backend | Status | Notas |
 |---------|:------:|-------|
-| CPU | ✅ | Fallback, preprocessing, debug, offload |
-| CUDA (NVIDIA) | ✅ | Caminho principal de validação local |
-| Metal (Apple) | ✅ | Implementado e espelhado nos testes |
+| CPU | ✅ | Inferência completa verificada localmente; útil para execução somente em CPU e depuração |
+| CUDA (NVIDIA) | ✅ | Inferência completa verificada e principal caminho de aceleração |
+| Metal (Apple) | ✅ | Backend de GPU para macOS; implementado e espelhado nos testes |
 
 ## 🛠️ Instalação e Configuração
 
 ### Pré-requisitos
 
 - Rust toolchain
+- Inferência somente em CPU funciona; aceleração por GPU é opcional
 - Para CUDA: GPU NVIDIA e driver/toolkit compatível
 - Para Metal: macOS com suporte a Metal
 - Pesos locais do modelo em `model/`

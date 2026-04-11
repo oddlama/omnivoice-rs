@@ -39,7 +39,7 @@
 - `docs/contracts` — поведенческие контракты по фазам
 - `tools` — локальные вспомогательные скрипты
 
-CUDA и Metal считаются основными backend’ами. CPU используется только как fallback, explicit offload, preprocessing и debug materialization.
+CUDA и Metal остаются предпочтительными backend’ами ускорения, но полноценный OmniVoice inference доступен как на CPU, так и на GPU.
 
 ## 🎬 Демо
 
@@ -68,6 +68,7 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 
 - Двухстейджевый OmniVoice inference pipeline на Rust
 - GPU-first выбор runtime: CUDA -> Metal -> CPU fallback
+- Полноценные inference-пути доступны и на CPU, и на GPU
 - Stage0 и Stage1 parity harness против официальных reference-артефактов OmniVoice
 - Voice clone, voice design, auto voice, batch и long-form chunked inference
 - CLI-команды `prepare-prompt`, `stage0-debug`, `stage1-decode` и `infer`
@@ -76,15 +77,16 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 
 | Backend | Статус | Примечания |
 |---------|:------:|------------|
-| CPU | ✅ | Fallback, preprocessing, debug, offload |
-| CUDA (NVIDIA) | ✅ | Основной локальный путь валидации |
-| Metal (Apple) | ✅ | Реализован и отражён в тестах |
+| CPU | ✅ | Полноценный inference подтверждён локально; подходит для CPU-only запуска и отладки |
+| CUDA (NVIDIA) | ✅ | Полноценный inference подтверждён; основной путь GPU-ускорения |
+| Metal (Apple) | ✅ | GPU backend для macOS; реализован и отражён в тестах |
 
 ## 🛠️ Установка и настройка
 
 ### Требования
 
 - Rust toolchain
+- CPU-only inference поддерживается; GPU-ускорение опционально
 - Для CUDA: NVIDIA GPU и совместимый драйвер/toolkit
 - Для Metal: macOS с поддержкой Metal
 - Либо локальный OmniVoice bundle, либо network access для скачивания моделей в Hugging Face cache

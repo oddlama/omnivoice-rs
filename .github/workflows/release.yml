@@ -97,6 +97,56 @@ jobs:
           path: omnivoice-${{ steps.tag.outputs.name }}-bin-macos-x64.tar.gz
           name: omnivoice-bin-macos-x64.tar.gz
 
+  macos-universal-cpu:
+    name: macOS universal (CPU)
+    runs-on: macos-14
+
+    steps:
+      - name: Clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build arm64 release binaries
+        run: cargo build --locked --release --target aarch64-apple-darwin -p omnivoice-cli -p omnivoice-server
+
+      - name: Build x64 release binaries
+        run: cargo build --locked --release --target x86_64-apple-darwin -p omnivoice-cli -p omnivoice-server
+
+      - name: Determine tag name
+        id: tag
+        uses: ./.github/actions/get-tag-name
+
+      - name: Pack universal CPU artifacts
+        shell: bash
+        run: |
+          ROOT_DIR="$RUNNER_TEMP/${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+          mkdir -p "$ROOT_DIR"
+          lipo -create \
+            target/aarch64-apple-darwin/release/omnivoice-cli \
+            target/x86_64-apple-darwin/release/omnivoice-cli \
+            -output "$ROOT_DIR/omnivoice-cli"
+          lipo -create \
+            target/aarch64-apple-darwin/release/omnivoice-server \
+            target/x86_64-apple-darwin/release/omnivoice-server \
+            -output "$ROOT_DIR/omnivoice-server"
+          cp LICENSE THIRD_PARTY_LICENSES.md README.md "$ROOT_DIR/"
+          tar -czvf omnivoice-${{ steps.tag.outputs.name }}-bin-macos-universal-cpu.tar.gz -C "$RUNNER_TEMP" "${{ env.RELEASE_STAGING_PREFIX }}-${{ steps.tag.outputs.name }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: omnivoice-${{ steps.tag.outputs.name }}-bin-macos-universal-cpu.tar.gz
+          name: omnivoice-bin-macos-universal-cpu.tar.gz
+
   ubuntu-cpu:
     name: Ubuntu x64 (CPU)
     runs-on: ubuntu-24.04
@@ -343,6 +393,7 @@ jobs:
     needs:
       - macos-arm64
       - macos-x64
+      - macos-universal-cpu
       - ubuntu-cpu
       - ubuntu-cuda
       - windows-cpu
@@ -388,6 +439,7 @@ jobs:
             **macOS:**
             - [macOS Apple Silicon (arm64, Metal)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-macos-arm64.tar.gz)
             - [macOS Intel (x64, Metal)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-macos-x64.tar.gz)
+            - [macOS Universal (arm64 + x64, CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-macos-universal-cpu.tar.gz)
 
             **Linux:**
             - [Ubuntu x64 (CPU)](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.name }}/omnivoice-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
