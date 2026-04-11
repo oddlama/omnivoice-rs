@@ -57,5 +57,5 @@ The local Whisper bundle under `model/whisper/` is preferred over remote fallbac
 
 For training, dataset preparation, and original model docs, see:
 
-- [Upstream OmniVoice README](../refs/OmniVoice/README.md)
-- [Upstream docs directory](../refs/OmniVoice/docs/)
+- [Upstream OmniVoice README](https://github.com/k2-fsa/OmniVoice/blob/main/README.md)
+- [Upstream docs directory](https://github.com/k2-fsa/OmniVoice/tree/main/docs)

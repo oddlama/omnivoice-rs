@@ -47,10 +47,10 @@ Não há demo GUI pública neste workspace. A interface principal é a CLI.
 
 ```powershell
 cargo run -p omnivoice-cli --features cuda -- infer `
-  --model-dir H:\omnivoice\model `
+  --model model `
   --text "Hello, this is a test of zero-shot text-to-speech." `
   --language en `
-  --output H:\omnivoice\artifacts\demo.wav `
+  --output artifacts\demo.wav `
   --device cuda:0 `
   --dtype f32 `
   --seed 1234

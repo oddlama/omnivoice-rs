@@ -49,7 +49,7 @@ CUDA и Metal остаются предпочтительными backend’ам
 cargo run -p omnivoice-cli --features cuda -- infer `
   --text "Hello, this is a test of zero-shot text-to-speech." `
   --language en `
-  --output H:\omnivoice\artifacts\demo.wav `
+  --output artifacts\demo.wav `
   --device cuda:0 `
   --dtype f32 `
   --seed 1234
@@ -59,9 +59,9 @@ cargo run -p omnivoice-cli --features cuda -- infer `
 
 ```powershell
 cargo run -p omnivoice-cli --features cuda -- infer `
-  --model H:\models\OmniVoice `
+  --model model `
   --text "Hello from a local model bundle." `
-  --output H:\omnivoice\artifacts\demo-local.wav
+  --output artifacts\demo-local.wav
 ```
 
 ## 🚀 Ключевые возможности
