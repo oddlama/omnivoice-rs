@@ -20,8 +20,8 @@ const DEFAULT_HF_ASR_MODEL: &str = DEFAULT_WHISPER_REPO;
 const DEFAULT_WHISPER_CONFIG_FILE: &str = "config.json";
 const DEFAULT_WHISPER_TOKENIZER_FILE: &str = "tokenizer.json";
 const DEFAULT_WHISPER_Q4_0_FILE: &str = "whisper-large-v3-turbo-q4_0.gguf";
-const MEL_FILTERS_80: &[u8] = include_bytes!("../../../tools/whisper/melfilters.bytes");
-const MEL_FILTERS_128: &[u8] = include_bytes!("../../../tools/whisper/melfilters128.bytes");
+const MEL_FILTERS_80: &[u8] = include_bytes!("melfilters.bytes");
+const MEL_FILTERS_128: &[u8] = include_bytes!("melfilters128.bytes");
 
 #[derive(Debug)]
 enum WhisperBackend {
