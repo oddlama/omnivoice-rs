@@ -37,7 +37,7 @@ It contains:
 
 - `crates/omnivoice-infer` — the two-stage inference pipeline
 - `crates/omnivoice-cli` — CLI for prompt prep, stage0/stage1 inspection, and full inference
-- `crates/omnivoice-server` — separate OpenAI-compatible HTTP speech server binary
+- `crates/omnivoice-server` — OpenAI-compatible HTTP and native Wyoming TTS server binary
 - `docs/contracts` — phase-by-phase behavior contracts
 - `tools` — local reference and support scripts
 
@@ -75,6 +75,8 @@ cargo run -p omnivoice-server --features cuda -- `
   --device cuda:0
 ```
 
+The same process can expose native Wyoming TTS for Home Assistant with `--wyoming-port 10200 --voices-config voices.toml`. See [CLI and Server](docs/cli-and-server.md#wyoming-server-and-home-assistant) for the voice preset format and setup details.
+
 ## 🎧 Listening samples
 
 Pre-generated WAVs let you A/B the **upstream Python OmniVoice** reference against this **Rust** port on the same prompts and seed.
@@ -104,8 +106,8 @@ Full 15-scenario CUDA table and CPU folders are in the comparison index.
 - Stage0 and Stage1 parity harnesses against official OmniVoice references
 - Voice clone, voice design, auto voice, batch, and long-form chunked inference
 - CLI workflows for `prepare-prompt`, `stage0-debug`, `stage1-decode`, and `infer`
-- Separate `omnivoice-server` binary with `/`, `/health`, `/v1/models`, and `/v1/audio/speech`
-- Server-side readiness reporting, base-path mounting, CORS/OPTIONS, and JSON or multipart request support for TTS
+- `omnivoice-server` with `/`, `/health`, `/v1/models`, `/v1/audio/speech`, and optional native Wyoming TTS
+- Server-side readiness reporting, voice presets, base-path mounting, CORS/OPTIONS, and JSON or multipart request support for TTS
 
 ### Hardware Acceleration
 

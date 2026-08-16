@@ -240,3 +240,86 @@ curl http://127.0.0.1:8000/v1/audio/speech \
 ```
 
 Server behavior is tested against the OpenAI-compatible surface in [crates/omnivoice-server/tests/openai_server.rs](../crates/omnivoice-server/tests/openai_server.rs).
+
+## Wyoming Server and Home Assistant
+
+`omnivoice-server` can expose a native [Wyoming protocol](https://github.com/OHF-Voice/wyoming) TTS service on a second TCP port while keeping the OpenAI endpoint unchanged. Both protocols share the same loaded model, request limit, timeout, and inference lock.
+
+Enable Wyoming with `--wyoming-port`. It is disabled when the option is omitted, so existing deployments do not acquire another listening port.
+
+```bash
+omnivoice-server \
+  --model model \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --wyoming-port 10200 \
+  --voices-config /etc/omnivoice/voices.toml \
+  --api-key local-dev-token
+```
+
+`--wyoming-host` may be used when Wyoming should bind a different interface. It defaults to the value of `--host`. Wyoming does not define authentication, so expose its port only to trusted networks.
+
+If `--voices-config` is omitted, Wyoming advertises a single `default` auto voice. With a config, all configured presets are advertised to Home Assistant.
+
+### Voice Preset TOML
+
+The requested array-of-tables form is supported. TOML paths must be quoted:
+
+```toml
+default_voice = "alice"
+languages = ["en"]
+
+[[voice.alice]]
+description = "Alice"
+reference = "./references/alice.wav"
+reference_text = "This is what was said by the reference voice."
+language = "en"
+speed = 1.0
+num_step = 32
+guidance_scale = 2.0
+
+[[voice.alice-fast]]
+description = "Alice (fast)"
+reference = "./references/alice.wav"
+reference_text = "This is what was said by the reference voice."
+language = "en"
+speed = 1.2
+num_step = 16
+```
+
+Relative reference paths are resolved relative to the TOML file. Reference audio is decoded when the config is loaded, and clone prompts are prepared once during model startup instead of being rebuilt for every request.
+
+Exactly one `[[voice.<name>]]` table is allowed for each exposed name. Use separate names such as `alice-fast` and `alice-slow` for variants that should be selectable in Home Assistant.
+
+Per-voice fields:
+
+- `description`
+- `languages`: language tags advertised to Home Assistant
+- `language`: OmniVoice generation language
+- `reference`: reference audio file path
+- `reference_text`, with `ref_text` accepted as an alias
+- `ref_audio`: base64 data URI alternative to `reference`
+- `duration`
+- `speed`
+- `instruct`
+- `asr_model`
+- `seed`
+- `num_step`
+- `guidance_scale`
+- `t_shift`
+- `layer_penalty_factor`
+- `position_temperature`
+- `class_temperature`
+- `preprocess_prompt`
+- `postprocess_output`
+- `denoise`
+- `audio_chunk_duration`
+- `audio_chunk_threshold`
+- `response_format`
+- `stream_format`
+
+`response_format` and `stream_format` are accepted and validated for configuration parity with the OpenAI request shape. Wyoming itself always transports mono PCM16 through `audio-start`, `audio-chunk`, and `audio-stop` events, so those two HTTP transport settings do not change Wyoming output.
+
+Home Assistant's Wyoming integration transports voice, language, and optional speaker selections, but not arbitrary OmniVoice generation parameters. Define multiple named presets when settings such as speed or guidance should be selectable. After changing the TOML, restart `omnivoice-server` and reload the Wyoming integration so Home Assistant refreshes its advertised voices.
+
+The server advertises `supports_synthesize_streaming = false` because OmniVoice currently returns complete generated audio. Audio is still emitted in bounded Wyoming PCM chunks after synthesis. Wire-level behavior is covered by [crates/omnivoice-server/tests/wyoming_server.rs](../crates/omnivoice-server/tests/wyoming_server.rs).
