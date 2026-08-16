@@ -5,6 +5,7 @@ pub mod openai;
 pub mod runtime;
 pub mod server;
 pub mod voice;
+pub mod wyoming;
 
 pub use args::ServerArgs;
 pub use runtime::{AppState, PipelineSpeechRuntime, ServerConfig, SpeechRuntime, run_synthesis};

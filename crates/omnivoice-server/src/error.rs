@@ -1,7 +1,9 @@
+use std::fmt;
+
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use omnivoice_infer::OmniVoiceError;
 use serde::Serialize;
@@ -69,6 +71,14 @@ impl ServerError {
         }
     }
 }
+
+impl fmt::Display for ServerError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ServerError {}
 
 impl IntoResponse for ServerError {
     fn into_response(self) -> Response {
