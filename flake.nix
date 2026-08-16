@@ -86,6 +86,14 @@
           nci.projects.omnivoice = {
             path = ./.;
             numtideDevshell = "default";
+            drvConfig.mkDerivation = {
+              nativeBuildInputs = [ pkgs.pkg-config ];
+              buildInputs = [ pkgs.openssl ];
+            };
+            depsDrvConfig.mkDerivation = {
+              nativeBuildInputs = [ pkgs.pkg-config ];
+              buildInputs = [ pkgs.openssl ];
+            };
           };
 
           packages = {
