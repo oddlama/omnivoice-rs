@@ -2,12 +2,16 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
 };
 
-use omnivoice_infer::contracts::{GenerationConfig, GenerationRequest, ReferenceAudioInput};
+use omnivoice_infer::{
+    audio_input::load_audio_file,
+    contracts::{GenerationConfig, GenerationRequest, ReferenceAudioInput, VoiceClonePrompt},
+};
 use serde::Deserialize;
 
-use crate::{audio::parse_data_uri_audio, error::ServerError};
+use crate::{audio::parse_data_uri_audio, error::ServerError, runtime::PipelineSpeechRuntime};
 
 const DEFAULT_LANGUAGE: &str = "en";
 
@@ -33,6 +37,7 @@ pub struct VoicePreset {
     pub generation_config: GenerationConfig,
     pub response_format: Option<String>,
     pub stream_format: Option<String>,
+    prepared_prompt: Arc<OnceLock<VoiceClonePrompt>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,8 +45,8 @@ pub struct VoicePreset {
 struct VoiceCatalogFile {
     #[serde(default)]
     default_voice: Option<String>,
-    #[serde(default = "default_languages")]
-    languages: Vec<String>,
+    #[serde(default)]
+    languages: Option<Vec<String>>,
     voice: BTreeMap<String, Vec<VoicePresetFile>>,
 }
 
@@ -116,6 +121,7 @@ impl VoiceCatalog {
             generation_config: GenerationConfig::default(),
             response_format: None,
             stream_format: None,
+            prepared_prompt: Arc::new(OnceLock::new()),
         };
         Self {
             voices: BTreeMap::from([(name.clone(), preset)]),
@@ -138,7 +144,9 @@ impl VoiceCatalog {
     pub fn from_toml(source: &str, base_dir: &Path) -> Result<Self, ServerError> {
         let parsed: VoiceCatalogFile = toml::from_str(source)
             .map_err(|error| ServerError::validation(format!("invalid voice config: {error}")))?;
-        validate_languages(&parsed.languages, "languages")?;
+        if let Some(languages) = parsed.languages.as_deref() {
+            validate_languages(languages, "languages")?;
+        }
         if parsed.voice.is_empty() {
             return Err(ServerError::validation(
                 "voice config must define at least one voice",
@@ -154,7 +162,8 @@ impl VoiceCatalog {
                 )));
             }
             let entry = entries.into_iter().next().expect("entry count checked");
-            let preset = VoicePreset::from_file(name.clone(), entry, &parsed.languages, base_dir)?;
+            let preset =
+                VoicePreset::from_file(name.clone(), entry, parsed.languages.as_deref(), base_dir)?;
             voices.insert(name, preset);
         }
 
@@ -189,6 +198,16 @@ impl VoiceCatalog {
         self.voices.get(name)
     }
 
+    pub fn prepare_clone_prompts(
+        &self,
+        runtime: &PipelineSpeechRuntime,
+    ) -> Result<(), ServerError> {
+        for voice in self.voices() {
+            voice.prepare_clone_prompt(runtime)?;
+        }
+        Ok(())
+    }
+
     pub fn resolve(
         &self,
         name: Option<&str>,
@@ -216,14 +235,18 @@ impl VoicePreset {
     fn from_file(
         name: String,
         file: VoicePresetFile,
-        catalog_languages: &[String],
+        catalog_languages: Option<&[String]>,
         base_dir: &Path,
     ) -> Result<Self, ServerError> {
         let description = file.description.unwrap_or_else(|| name.clone());
         let description = non_empty(description, &format!("voice `{name}` description"))?;
-        let languages = file.languages.unwrap_or_else(|| catalog_languages.to_vec());
-        validate_languages(&languages, &format!("voice `{name}` languages"))?;
         let language = optional_non_empty(file.language, &format!("voice `{name}` language"))?;
+        let languages = file
+            .languages
+            .or_else(|| catalog_languages.map(<[String]>::to_vec))
+            .or_else(|| language.clone().map(|language| vec![language]))
+            .unwrap_or_else(default_languages);
+        validate_languages(&languages, &format!("voice `{name}` languages"))?;
         validate_positive(file.duration, &format!("voice `{name}` duration"))?;
         validate_positive(file.speed, &format!("voice `{name}` speed"))?;
 
@@ -245,7 +268,13 @@ impl VoicePreset {
                         path.display()
                     )));
                 }
-                Some(ReferenceAudioInput::from_path(path))
+                let waveform = load_audio_file(&path).map_err(|error| {
+                    ServerError::validation(format!(
+                        "failed to load voice `{name}` reference audio {}: {error}",
+                        path.display()
+                    ))
+                })?;
+                Some(ReferenceAudioInput::Waveform(waveform))
             }
             (None, Some(data_uri)) => {
                 Some(parse_data_uri_audio(&serde_json::Value::String(data_uri))?)
@@ -319,6 +348,7 @@ impl VoicePreset {
             generation_config,
             response_format,
             stream_format,
+            prepared_prompt: Arc::new(OnceLock::new()),
         })
     }
 
@@ -335,12 +365,34 @@ impl VoicePreset {
         ];
         request.durations = vec![self.duration];
         request.speeds = vec![self.speed];
-        request.ref_audios = vec![self.reference_audio.clone()];
-        request.ref_texts = vec![self.reference_text.clone()];
+        if let Some(prompt) = self.prepared_prompt.get() {
+            request.voice_clone_prompts = vec![Some(prompt.clone())];
+        } else {
+            request.ref_audios = vec![self.reference_audio.clone()];
+            request.ref_texts = vec![self.reference_text.clone()];
+        }
         request.instructs = vec![self.instruct.clone()];
         request.asr_model = self.asr_model.clone();
         request.generation_config = self.generation_config.clone();
         request
+    }
+
+    fn prepare_clone_prompt(&self, runtime: &PipelineSpeechRuntime) -> Result<(), ServerError> {
+        let Some(reference_audio) = self.reference_audio.as_ref() else {
+            return Ok(());
+        };
+        if self.prepared_prompt.get().is_some() {
+            return Ok(());
+        }
+        let prompt = runtime.prepare_voice_clone_prompt(
+            reference_audio,
+            self.reference_text.as_deref(),
+            self.generation_config.preprocess_prompt,
+            self.asr_model.as_deref(),
+        )?;
+        self.prepared_prompt
+            .set(prompt)
+            .map_err(|_| ServerError::internal("voice clone prompt was prepared twice"))
     }
 }
 
@@ -430,10 +482,24 @@ mod tests {
         path
     }
 
+    fn write_test_wav(path: &Path) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 24_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for _ in 0..2_400 {
+            writer.write_sample(100_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
     #[test]
     fn parses_requested_array_of_tables_and_all_generation_fields() {
         let dir = temp_dir();
-        fs::write(dir.join("alice.wav"), b"placeholder").unwrap();
+        write_test_wav(&dir.join("alice.wav"));
         let source = r#"
             default_voice = "alice"
             languages = ["en-US", "de-DE"]
@@ -474,7 +540,7 @@ mod tests {
         assert_eq!(voice.stream_format.as_deref(), Some("audio"));
         assert!(matches!(
             voice.reference_audio,
-            Some(ReferenceAudioInput::FilePath(_))
+            Some(ReferenceAudioInput::Waveform(_))
         ));
 
         let request = voice.generation_request("hello", Some("de"));
@@ -507,7 +573,8 @@ mod tests {
 
         assert_eq!(catalog.default_voice(), "alice");
         assert_eq!(catalog.get("alice").unwrap().languages, ["en"]);
-        assert_eq!(catalog.resolve(None, Some("de")).unwrap().name, "alice");
+        assert_eq!(catalog.get("bob").unwrap().languages, ["de"]);
+        assert_eq!(catalog.resolve(None, Some("de")).unwrap().name, "bob");
         assert_eq!(catalog.resolve(Some("bob"), None).unwrap().name, "bob");
     }
 

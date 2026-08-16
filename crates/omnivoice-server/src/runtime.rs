@@ -7,7 +7,9 @@ use std::{
 };
 
 use omnivoice_infer::{
-    GeneratedAudioResult, RuntimeOptions, contracts::GenerationRequest, pipeline::Phase3Pipeline,
+    GeneratedAudioResult, RuntimeOptions,
+    contracts::{GenerationRequest, ReferenceAudioInput, VoiceClonePrompt},
+    pipeline::Phase3Pipeline,
 };
 use tokio::sync::Semaphore;
 
@@ -52,6 +54,27 @@ impl PipelineSpeechRuntime {
             pipeline: Phase3Pipeline::from_options(options)?,
             inference_lock: Mutex::new(()),
         })
+    }
+
+    pub fn prepare_voice_clone_prompt(
+        &self,
+        reference_audio: &ReferenceAudioInput,
+        reference_text: Option<&str>,
+        preprocess_prompt: bool,
+        asr_model: Option<&str>,
+    ) -> Result<VoiceClonePrompt, ServerError> {
+        let _guard = self
+            .inference_lock
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        self.pipeline
+            .create_voice_clone_prompt_from_audio(
+                reference_audio,
+                reference_text,
+                preprocess_prompt,
+                asr_model,
+            )
+            .map_err(ServerError::from)
     }
 }
 

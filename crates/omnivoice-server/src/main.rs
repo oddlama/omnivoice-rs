@@ -50,9 +50,22 @@ async fn main() -> Result<(), ServerError> {
     }
 
     let state_for_runtime = state.clone();
+    let catalog_for_runtime = wyoming_listener
+        .as_ref()
+        .map(|(_, _, _, catalog)| Arc::clone(catalog));
     tokio::task::spawn_blocking(move || {
         match PipelineSpeechRuntime::from_options(runtime_options) {
             Ok(runtime) => {
+                if let Some(catalog) = catalog_for_runtime {
+                    if let Err(error) = catalog.prepare_clone_prompts(&runtime) {
+                        state_for_runtime.mark_failed();
+                        error!(
+                            "omnivoice-server voice prompts failed to initialize: {:?}",
+                            error
+                        );
+                        return;
+                    }
+                }
                 state_for_runtime.install_runtime(runtime);
                 info!("omnivoice-server runtime is ready");
             }
