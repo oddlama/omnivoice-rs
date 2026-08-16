@@ -1,7 +1,7 @@
 use std::{io, sync::Arc};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
@@ -11,7 +11,7 @@ use tokio::{
 use tracing::{debug, warn};
 
 use crate::{
-    runtime::{AppState, run_synthesis},
+    runtime::{run_synthesis, AppState},
     voice::VoiceCatalog,
 };
 
@@ -431,9 +431,9 @@ fn invalid_data(error: impl std::fmt::Display) -> io::Error {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use tokio::io::{AsyncWriteExt, BufReader, duplex};
+    use tokio::io::{duplex, AsyncWriteExt, BufReader};
 
-    use super::{MAX_HEADER_BYTES, WyomingEvent, read_event, write_event};
+    use super::{read_event, write_event, WyomingEvent, MAX_HEADER_BYTES};
 
     #[tokio::test]
     async fn codec_merges_inline_and_additional_data_and_reads_payload() {

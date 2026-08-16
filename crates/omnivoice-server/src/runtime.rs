@@ -1,15 +1,15 @@
 use std::{
     sync::{
-        Arc, Mutex, RwLock,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
 
 use omnivoice_infer::{
-    GeneratedAudioResult, RuntimeOptions,
     contracts::{GenerationRequest, ReferenceAudioInput, VoiceClonePrompt},
     pipeline::Phase3Pipeline,
+    GeneratedAudioResult, RuntimeOptions,
 };
 use tokio::sync::Semaphore;
 

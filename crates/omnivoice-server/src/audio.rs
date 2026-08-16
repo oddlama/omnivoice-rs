@@ -1,24 +1,24 @@
 use std::{collections::HashMap, convert::Infallible, io::Cursor, path::Path};
 
 use axum::{
-    Json,
     body::{Body, Bytes},
     extract::{FromRequest, Multipart, Request},
-    http::{HeaderValue, Response, StatusCode, header},
+    http::{header, HeaderValue, Response, StatusCode},
     response::{
-        IntoResponse,
         sse::{Event, KeepAlive, Sse},
+        IntoResponse,
     },
+    Json,
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use futures_util::{StreamExt, stream};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use futures_util::{stream, StreamExt};
 use omnivoice_infer::{
-    GeneratedAudioResult,
     audio_input::load_audio_bytes,
     contracts::{DecodedAudio, GenerationConfig, GenerationRequest, ReferenceAudioInput},
+    GeneratedAudioResult,
 };
-use serde_json::{Value, json};
-use shine_rs::{Mp3EncoderConfig, StereoMode, encode_pcm_to_mp3};
+use serde_json::{json, Value};
+use shine_rs::{encode_pcm_to_mp3, Mp3EncoderConfig, StereoMode};
 
 use crate::{
     error::ServerError,

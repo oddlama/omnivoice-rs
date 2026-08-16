@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use clap::Parser;
 use omnivoice_server::{
-    ServerArgs, VoiceCatalog, build_router,
+    build_router,
     error::ServerError,
     runtime::{AppState, PipelineSpeechRuntime, ServerConfig},
-    wyoming,
+    wyoming, ServerArgs, VoiceCatalog,
 };
 use tokio::{net::TcpListener, sync::watch};
 use tracing::{error, info};

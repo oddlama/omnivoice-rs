@@ -5,15 +5,15 @@ use std::{
 };
 
 use omnivoice_infer::{
-    GeneratedAudioResult,
     contracts::{DecodedAudio, GenerationRequest, GenerationUsage},
+    GeneratedAudioResult,
 };
 use omnivoice_server::{
-    VoiceCatalog,
     runtime::{AppState, ServerConfig, SpeechRuntime},
-    wyoming::{WyomingEvent, read_event, serve, write_event},
+    wyoming::{read_event, serve, write_event, WyomingEvent},
+    VoiceCatalog,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::{
     io::BufReader,
     net::{TcpListener, TcpStream},
@@ -133,11 +133,9 @@ async fn advertises_catalog_and_synthesizes_selected_voice_as_pcm() {
     assert_eq!(info.data["tts"][0]["supports_synthesize_streaming"], false);
     let voices = info.data["tts"][0]["voices"].as_array().unwrap();
     assert_eq!(voices.len(), 2);
-    assert!(
-        voices
-            .iter()
-            .any(|voice| voice["name"] == "alice" && voice["languages"] == json!(["en-US"]))
-    );
+    assert!(voices
+        .iter()
+        .any(|voice| voice["name"] == "alice" && voice["languages"] == json!(["en-US"])));
 
     let synthesize = WyomingEvent::new("synthesize")
         .with_data(json!({
@@ -197,12 +195,10 @@ async fn returns_protocol_errors_for_unknown_voices_and_starting_runtime() {
     let error = read_event(&mut reader, 1024 * 1024).await.unwrap().unwrap();
     assert_eq!(error.event_type, "error");
     assert_eq!(error.data["code"], "unknown-voice");
-    assert!(
-        error.data["text"]
-            .as_str()
-            .unwrap()
-            .contains("not configured")
-    );
+    assert!(error.data["text"]
+        .as_str()
+        .unwrap()
+        .contains("not configured"));
     assert!(runtime.requests().is_empty());
     shutdown.send(true).unwrap();
     server.await.unwrap().unwrap();

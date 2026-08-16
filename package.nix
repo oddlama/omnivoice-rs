@@ -31,12 +31,15 @@ let
     ];
   };
 
-  cudaLibraryPath = lib.makeLibraryPath (with cudaPackages; [
-    (cuda_cudart.lib or cuda_cudart)
-    (libcublas.lib or libcublas)
-    (cuda_nvrtc.lib or cuda_nvrtc)
-    (libcurand.lib or libcurand)
-  ]);
+  cudaLibraryPath = lib.makeLibraryPath (
+    with cudaPackages;
+    [
+      (cuda_cudart.lib or cuda_cudart)
+      (libcublas.lib or libcublas)
+      (cuda_nvrtc.lib or cuda_nvrtc)
+      (libcurand.lib or libcurand)
+    ]
+  );
 in
 rustPlatform.buildRustPackage {
   pname = "omnivoice";
@@ -46,21 +49,26 @@ rustPlatform.buildRustPackage {
 
   cargoLock.lockFile = ./Cargo.lock;
 
-  nativeBuildInputs =
-    [ pkg-config ]
-    ++ lib.optionals cudaSupport [
-      makeWrapper
-      cudaPackages.cuda_nvcc
-    ];
+  nativeBuildInputs = [
+    pkg-config
+  ]
+  ++ lib.optionals cudaSupport [
+    makeWrapper
+    cudaPackages.cuda_nvcc
+  ];
 
-  buildInputs =
-    [ openssl ]
-    ++ lib.optionals cudaSupport (with cudaPackages; [
+  buildInputs = [
+    openssl
+  ]
+  ++ lib.optionals cudaSupport (
+    with cudaPackages;
+    [
       cuda_cudart
       libcublas
       cuda_nvrtc
       libcurand
-    ]);
+    ]
+  );
 
   buildFeatures = lib.optionals cudaSupport [ "cuda" ];
 

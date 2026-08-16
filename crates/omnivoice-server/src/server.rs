@@ -1,10 +1,10 @@
 use axum::{
-    Json, Router,
     extract::DefaultBodyLimit,
     extract::{Request, State},
-    http::{HeaderMap, header},
+    http::{header, HeaderMap},
     response::IntoResponse,
     routing::{get, post},
+    Json, Router,
 };
 use tower_http::cors::{Any, CorsLayer};
 
@@ -12,7 +12,7 @@ use crate::{
     audio::{build_audio_response, parse_http_speech_request},
     error::ServerError,
     openai::{HealthResponse, ModelObject, ModelsResponse},
-    runtime::{AppState, RuntimeStatus, run_synthesis},
+    runtime::{run_synthesis, AppState, RuntimeStatus},
 };
 
 pub fn build_router(state: AppState) -> Router {

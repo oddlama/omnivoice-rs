@@ -3,6 +3,7 @@
 # Rust / Cargo
 /target/
 /target-*/
+/result
 **/*.rs.bk
 
 # Local heavy artifacts and reference corpora

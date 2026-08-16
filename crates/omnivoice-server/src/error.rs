@@ -1,9 +1,9 @@
 use std::fmt;
 
 use axum::{
-    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
 use omnivoice_infer::OmniVoiceError;
 use serde::Serialize;

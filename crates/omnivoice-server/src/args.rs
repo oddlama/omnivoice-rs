@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use clap::Parser;
 use omnivoice_infer::{
-    DTypeSpec, DeviceSpec, RuntimeOptions, model_source::resolve_tts_model_root_from_path,
+    model_source::resolve_tts_model_root_from_path, DTypeSpec, DeviceSpec, RuntimeOptions,
 };
 use shine_rs::SUPPORTED_BITRATES;
 
@@ -187,16 +187,14 @@ mod tests {
 
     #[test]
     fn wyoming_specific_options_require_the_port() {
-        assert!(
-            ServerArgs::try_parse_from([
-                "omnivoice-server",
-                "--api-key",
-                "test-key",
-                "--voices-config",
-                "voices.toml",
-            ])
-            .is_err()
-        );
+        assert!(ServerArgs::try_parse_from([
+            "omnivoice-server",
+            "--api-key",
+            "test-key",
+            "--voices-config",
+            "voices.toml",
+        ])
+        .is_err());
     }
 
     #[test]

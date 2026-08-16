@@ -76,7 +76,10 @@
               deadnix.enable = true;
               statix.enable = true;
               nixfmt.enable = true;
-              rustfmt.enable = true;
+              rustfmt = {
+                enable = true;
+                edition = "2021";
+              };
             };
           };
 

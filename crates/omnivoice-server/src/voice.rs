@@ -358,11 +358,10 @@ impl VoicePreset {
         requested_language: Option<&str>,
     ) -> GenerationRequest {
         let mut request = GenerationRequest::new_text_only(text);
-        request.languages = vec![
-            self.language
-                .clone()
-                .or_else(|| requested_language.map(ToOwned::to_owned)),
-        ];
+        request.languages = vec![self
+            .language
+            .clone()
+            .or_else(|| requested_language.map(ToOwned::to_owned))];
         request.durations = vec![self.duration];
         request.speeds = vec![self.speed];
         if let Some(prompt) = self.prepared_prompt.get() {

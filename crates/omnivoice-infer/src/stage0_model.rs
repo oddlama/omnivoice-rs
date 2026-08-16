@@ -1267,9 +1267,7 @@ fn gumbel_argmax(logits: &Tensor, temperature: f32) -> Result<Tensor> {
         return logits.argmax(candle_core::D::Minus1).map_err(Into::into);
     }
     let scores = apply_gumbel_noise(logits, temperature)?;
-    scores
-        .argmax(candle_core::D::Minus1)
-        .map_err(Into::into)
+    scores.argmax(candle_core::D::Minus1).map_err(Into::into)
 }
 
 /// Device-side Gumbel noise matching PyTorch OmniVoice `_gumbel_sample`.
