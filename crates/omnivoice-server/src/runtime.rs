@@ -1,13 +1,13 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
 use omnivoice_infer::{
-    contracts::GenerationRequest, pipeline::Phase3Pipeline, GeneratedAudioResult, RuntimeOptions,
+    GeneratedAudioResult, RuntimeOptions, contracts::GenerationRequest, pipeline::Phase3Pipeline,
 };
 use tokio::sync::Semaphore;
 
@@ -155,6 +155,40 @@ pub struct AppState {
     status: Arc<RwLock<RuntimeStatus>>,
     pub config: Arc<ServerConfig>,
     pub limiter: Arc<Semaphore>,
+}
+
+pub async fn run_synthesis(
+    state: &AppState,
+    generation_request: GenerationRequest,
+    seed_override: Option<u64>,
+) -> Result<GeneratedAudioResult, ServerError> {
+    let runtime = state
+        .runtime()
+        .ok_or_else(|| ServerError::service_unavailable("runtime is not ready"))?;
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let cancellation_for_worker = Arc::clone(&cancellation);
+    let limiter = Arc::clone(&state.limiter);
+    let handle = async move {
+        let permit = limiter
+            .acquire_owned()
+            .await
+            .map_err(|_| ServerError::internal("request limiter is closed"))?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            runtime.synthesize_with_seed(generation_request, seed_override, cancellation_for_worker)
+        })
+        .await
+        .map_err(ServerError::from)?
+        .map_err(ServerError::from)
+    };
+
+    match tokio::time::timeout(state.config.request_timeout, handle).await {
+        Ok(result) => result,
+        Err(_) => {
+            cancellation.store(true, Ordering::Release);
+            Err(ServerError::request_timeout("request timed out"))
+        }
+    }
 }
 
 impl AppState {

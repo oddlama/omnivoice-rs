@@ -1,19 +1,18 @@
 use axum::{
+    Json, Router,
     extract::DefaultBodyLimit,
     extract::{Request, State},
-    http::{header, HeaderMap},
+    http::{HeaderMap, header},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
-use std::sync::{atomic::AtomicBool, Arc};
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     audio::{build_audio_response, parse_http_speech_request},
     error::ServerError,
     openai::{HealthResponse, ModelObject, ModelsResponse},
-    runtime::{AppState, RuntimeStatus},
+    runtime::{AppState, RuntimeStatus, run_synthesis},
 };
 
 pub fn build_router(state: AppState) -> Router {
@@ -83,33 +82,7 @@ async fn audio_speech(
     let stream_format = parsed.stream_format;
     let seed_override = parsed.seed_override;
     let generation_request = parsed.generation_request;
-    let runtime = state
-        .runtime()
-        .ok_or_else(|| ServerError::service_unavailable("runtime is not ready"))?;
-    let request_timeout = state.config.request_timeout;
-    let cancellation = Arc::new(AtomicBool::new(false));
-    let cancellation_for_worker = Arc::clone(&cancellation);
-    let limiter = Arc::clone(&state.limiter);
-    let handle = async move {
-        let permit = limiter
-            .acquire_owned()
-            .await
-            .map_err(|_| ServerError::internal("request limiter is closed"))?;
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            runtime.synthesize_with_seed(generation_request, seed_override, cancellation_for_worker)
-        })
-        .await
-        .map_err(ServerError::from)?
-        .map_err(ServerError::from)
-    };
-    let result = match tokio::time::timeout(request_timeout, handle).await {
-        Ok(result) => result?,
-        Err(_) => {
-            cancellation.store(true, std::sync::atomic::Ordering::Release);
-            return Err(ServerError::request_timeout("request timed out"));
-        }
-    };
+    let result = run_synthesis(&state, generation_request, seed_override).await?;
 
     build_audio_response(
         result,
