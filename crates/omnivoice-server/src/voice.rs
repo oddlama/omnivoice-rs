@@ -99,6 +99,30 @@ struct VoicePresetFile {
 }
 
 impl VoiceCatalog {
+    pub fn built_in() -> Self {
+        let name = "default".to_string();
+        let preset = VoicePreset {
+            name: name.clone(),
+            description: "OmniVoice default voice".to_string(),
+            languages: default_languages(),
+            language: None,
+            duration: None,
+            speed: None,
+            reference_audio: None,
+            reference_text: None,
+            instruct: None,
+            asr_model: None,
+            seed: None,
+            generation_config: GenerationConfig::default(),
+            response_format: None,
+            stream_format: None,
+        };
+        Self {
+            voices: BTreeMap::from([(name.clone(), preset)]),
+            default_voice: name,
+        }
+    }
+
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self, ServerError> {
         let path = path.as_ref();
         let source = fs::read_to_string(path).map_err(|error| {

@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use clap::Parser;
 use omnivoice_infer::{
-    model_source::resolve_tts_model_root_from_path, DTypeSpec, DeviceSpec, RuntimeOptions,
+    DTypeSpec, DeviceSpec, RuntimeOptions, model_source::resolve_tts_model_root_from_path,
 };
 use shine_rs::SUPPORTED_BITRATES;
 
@@ -19,6 +19,15 @@ pub struct ServerArgs {
 
     #[arg(long, default_value_t = 8000)]
     pub port: u16,
+
+    #[arg(long)]
+    pub wyoming_port: Option<u16>,
+
+    #[arg(long, requires = "wyoming_port")]
+    pub wyoming_host: Option<String>,
+
+    #[arg(long, requires = "wyoming_port")]
+    pub voices_config: Option<PathBuf>,
 
     #[arg(long, default_value = "auto")]
     pub device: String,
@@ -104,6 +113,10 @@ impl ServerArgs {
     pub fn request_timeout(&self) -> Duration {
         Duration::from_secs(self.request_timeout_secs)
     }
+
+    pub fn resolved_wyoming_host(&self) -> &str {
+        self.wyoming_host.as_deref().unwrap_or(&self.host)
+    }
 }
 
 fn normalize_base_path(value: &str) -> String {
@@ -147,6 +160,43 @@ mod tests {
         .unwrap();
 
         assert_eq!(args.model_dir, Some(PathBuf::from("k2-fsa/OmniVoice")));
+    }
+
+    #[test]
+    fn wyoming_options_are_opt_in_and_share_http_host_by_default() {
+        let disabled =
+            ServerArgs::try_parse_from(["omnivoice-server", "--api-key", "test-key"]).unwrap();
+        assert_eq!(disabled.wyoming_port, None);
+
+        let enabled = ServerArgs::try_parse_from([
+            "omnivoice-server",
+            "--api-key",
+            "test-key",
+            "--host",
+            "0.0.0.0",
+            "--wyoming-port",
+            "10200",
+            "--voices-config",
+            "voices.toml",
+        ])
+        .unwrap();
+        assert_eq!(enabled.wyoming_port, Some(10200));
+        assert_eq!(enabled.resolved_wyoming_host(), "0.0.0.0");
+        assert_eq!(enabled.voices_config, Some(PathBuf::from("voices.toml")));
+    }
+
+    #[test]
+    fn wyoming_specific_options_require_the_port() {
+        assert!(
+            ServerArgs::try_parse_from([
+                "omnivoice-server",
+                "--api-key",
+                "test-key",
+                "--voices-config",
+                "voices.toml",
+            ])
+            .is_err()
+        );
     }
 
     #[test]
