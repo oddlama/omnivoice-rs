@@ -23,6 +23,7 @@
 /.cache/
 /.tmp/
 /.temp/
+/.pre-commit-config.yaml
 *.log
 
 # Python / virtualenv

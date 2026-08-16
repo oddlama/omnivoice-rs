@@ -39,13 +39,26 @@
         {
           config,
           pkgs,
+          system,
           ...
         }:
+        let
+          cudaPkgs = import inputs.nixpkgs {
+            inherit system;
+            config = {
+              allowUnfree = true;
+              cudaSupport = true;
+            };
+          };
+        in
         {
           devshells.default = {
             packages = [
               config.treefmt.build.wrapper
               pkgs.rust-analyzer
+              pkgs.pkg-config
+              pkgs.openssl
+              pkgs.openssl.dev
             ];
             devshell.startup.pre-commit.text = config.pre-commit.installationScript;
             env = [
@@ -70,6 +83,12 @@
           nci.projects.omnivoice = {
             path = ./.;
             numtideDevshell = "default";
+          };
+
+          packages = {
+            default = pkgs.callPackage ./package.nix { };
+            cuda = cudaPkgs.callPackage ./package.nix { };
+            with-cuda = config.packages.cuda;
           };
         };
     };
