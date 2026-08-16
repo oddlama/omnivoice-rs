@@ -85,6 +85,7 @@
 
           nci.projects.omnivoice = {
             path = ./.;
+            export = false;
             numtideDevshell = "default";
             drvConfig.mkDerivation = {
               nativeBuildInputs = [ pkgs.pkg-config ];
@@ -101,6 +102,8 @@
             cuda = cudaPkgs.callPackage ./package.nix { };
             with-cuda = config.packages.cuda;
           };
+
+          checks.package = config.packages.default;
         };
     };
 }
