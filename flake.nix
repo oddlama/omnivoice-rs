@@ -103,7 +103,12 @@
             with-cuda = config.packages.cuda;
           };
 
-          checks.package = config.packages.default;
+          checks = {
+            package = config.packages.default;
+            omnivoice-cli-tests = config.nci.outputs.omnivoice-cli.check;
+            omnivoice-infer-tests = config.nci.outputs.omnivoice-infer.check;
+            omnivoice-server-tests = config.nci.outputs.omnivoice-server.check;
+          };
         };
     };
 }
