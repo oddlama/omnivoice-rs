@@ -8,6 +8,8 @@ Unlike the upstream Python repository, this workspace is focused on inference, v
 
 - [CLI and Server](./cli-and-server.md)
   Main entrypoints, common commands, OpenAI-compatible server endpoints, and request examples.
+- [NixOS Module](./nixos.md)
+  Flake outputs, the `services.omnivoice` options, declarative voice presets, and CUDA specifics.
 - [Generation Parameters](./generation-parameters.md)
   Runtime generation controls implemented by the Rust port, their defaults, and practical tuning notes.
 - [Voice Design](./voice-design.md)

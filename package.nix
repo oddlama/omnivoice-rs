@@ -8,12 +8,11 @@
   cudaPackages,
   addDriverRunpath,
   config,
+  cudaSupport ? config.cudaSupport or false,
   cudaCapability ? "86",
 }:
 
 let
-  cudaSupport = config.cudaSupport or false;
-
   # Merge split CUDA packages into a single tree so build scripts
   # (candle-kernels) can find headers, nvcc, and libraries together.
   cudaToolkit = symlinkJoin {
@@ -90,6 +89,12 @@ rustPlatform.buildRustPackage {
         --prefix LD_LIBRARY_PATH : "${addDriverRunpath.driverLink}/lib"
     done
   '';
+
+  # Consumers such as the NixOS module select GPU specific runtime settings
+  # based on this flag.
+  passthru = {
+    inherit cudaSupport;
+  };
 
   meta = {
     description = "GPU-first Rust port of OmniVoice TTS inference";

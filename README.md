@@ -128,6 +128,21 @@ Full 15-scenario CUDA table and CPU folders are in the comparison index.
 - Either a local OmniVoice bundle or network access to download models into the Hugging Face cache
 - Official upstream reference materials available locally
 
+### NixOS
+
+The flake exports `nixosModules.default`, which runs `omnivoice-server` as a hardened system service with optional Wyoming support and declarative voice presets:
+
+```nix
+services.omnivoice = {
+  enable = true;
+  apiKeyFile = "/run/secrets/omnivoice-api-key";
+  wyoming.enable = true;
+  voices.alice.reference = ./references/alice.wav;
+};
+```
+
+See [NixOS Module](docs/nixos.md) for the full option set, CUDA setup, and model storage details.
+
 ### Development
 
 ```powershell

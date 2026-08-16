@@ -35,6 +35,23 @@
         "aarch64-linux"
       ];
 
+      flake = {
+        overlays.default = final: _prev: {
+          omnivoice = final.callPackage ./package.nix { };
+          omnivoice-cuda = final.callPackage ./package.nix { cudaSupport = true; };
+        };
+
+        nixosModules = {
+          omnivoice = ./module.nix;
+          # Convenience module: adds `pkgs.omnivoice` so the package option's
+          # default resolves without wiring up the overlay by hand.
+          default = {
+            imports = [ ./module.nix ];
+            nixpkgs.overlays = [ inputs.self.overlays.default ];
+          };
+        };
+      };
+
       perSystem =
         {
           config,
@@ -105,6 +122,49 @@
 
           checks = {
             package = config.packages.default;
+            nixos-module =
+              let
+                nixos = inputs.nixpkgs.lib.nixosSystem {
+                  modules = [
+                    ./module.nix
+                    {
+                      nixpkgs.pkgs = pkgs;
+                      boot.loader.grub.enable = false;
+                      fileSystems."/" = {
+                        device = "none";
+                        fsType = "tmpfs";
+                      };
+                      system.stateVersion = "25.05";
+
+                      services.omnivoice = {
+                        enable = true;
+                        package = config.packages.default;
+                        apiKeyFile = "/run/secrets/omnivoice-api-key";
+                        host = "0.0.0.0";
+                        openFirewall = true;
+                        wyoming = {
+                          enable = true;
+                          openFirewall = true;
+                        };
+                        defaultVoice = "alice";
+                        languages = [ "en" ];
+                        voices.alice = {
+                          description = "Alice";
+                          language = "en";
+                          speed = 1;
+                          num_step = 32;
+                          guidance_scale = 2.0;
+                        };
+                      };
+                    }
+                  ];
+                };
+                failed = builtins.filter (entry: !entry.assertion) nixos.config.assertions;
+              in
+              if failed != [ ] then
+                throw "nixosModule assertions failed: ${builtins.concatStringsSep "\n" (map (e: e.message) failed)}"
+              else
+                nixos.config.systemd.units."omnivoice-server.service".unit;
             omnivoice-cli-tests = config.nci.outputs.omnivoice-cli.check;
             omnivoice-infer-tests = config.nci.outputs.omnivoice-infer.check;
             omnivoice-server-tests = config.nci.outputs.omnivoice-server.check;

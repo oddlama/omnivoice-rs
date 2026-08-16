@@ -257,6 +257,8 @@ omnivoice-server \
   --api-key local-dev-token
 ```
 
+On NixOS, `services.omnivoice.wyoming` and `services.omnivoice.voices` configure the same thing declaratively; see [NixOS Module](./nixos.md).
+
 `--wyoming-host` may be used when Wyoming should bind a different interface. It defaults to the value of `--host`. Wyoming does not define authentication, so expose its port only to trusted networks.
 
 If `--voices-config` is omitted, Wyoming advertises a single `default` auto voice. With a config, all configured presets are advertised to Home Assistant.
