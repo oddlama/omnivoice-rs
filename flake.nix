@@ -22,6 +22,24 @@
 
   outputs =
     inputs:
+    let
+      # Use the same pinned upstream toolchain as nci's checks. The nixpkgs
+      # Rust/LLVM combination fails to compile Candle's AVX-512 intrinsics.
+      mkPackage =
+        pkgs: args:
+        let
+          toolchain = (inputs.nci.inputs.rust-overlay.lib.mkRustBin { } pkgs).stable.latest.default;
+        in
+        pkgs.callPackage ./package.nix (
+          {
+            rustPlatform = pkgs.makeRustPlatform {
+              cargo = toolchain;
+              rustc = toolchain;
+            };
+          }
+          // args
+        );
+    in
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.devshell.flakeModule
@@ -37,8 +55,8 @@
 
       flake = {
         overlays.default = final: _prev: {
-          omnivoice = final.callPackage ./package.nix { };
-          omnivoice-cuda = final.callPackage ./package.nix { cudaSupport = true; };
+          omnivoice = mkPackage final { };
+          omnivoice-cuda = mkPackage final { cudaSupport = true; };
         };
 
         nixosModules = {
@@ -55,6 +73,7 @@
       perSystem =
         {
           config,
+          lib,
           pkgs,
           system,
           ...
@@ -101,22 +120,35 @@
           };
 
           nci.projects.omnivoice = {
-            path = ./.;
+            path = inputs.self.outPath;
             export = false;
             numtideDevshell = "default";
-            drvConfig.mkDerivation = {
-              nativeBuildInputs = [ pkgs.pkg-config ];
-              buildInputs = [ pkgs.openssl ];
+            drvConfig = {
+              # Reuse the package's hash-pinned vendor tree instead of
+              # dream2nix's shallow Git fetches during evaluation.
+              imports = [
+                {
+                  rust-cargo-vendor.vendoredSources = lib.mkForce config.packages.default.cargoDeps;
+                }
+              ];
+              env.RUSTFLAGS = config.packages.default.RUSTFLAGS;
+              mkDerivation = {
+                nativeBuildInputs = [ pkgs.pkg-config ];
+                buildInputs = [ pkgs.openssl ];
+              };
             };
-            depsDrvConfig.mkDerivation = {
-              nativeBuildInputs = [ pkgs.pkg-config ];
-              buildInputs = [ pkgs.openssl ];
+            depsDrvConfig = {
+              env.RUSTFLAGS = config.packages.default.RUSTFLAGS;
+              mkDerivation = {
+                nativeBuildInputs = [ pkgs.pkg-config ];
+                buildInputs = [ pkgs.openssl ];
+              };
             };
           };
 
           packages = {
-            default = pkgs.callPackage ./package.nix { };
-            cuda = cudaPkgs.callPackage ./package.nix { };
+            default = mkPackage pkgs { };
+            cuda = mkPackage cudaPkgs { };
             with-cuda = config.packages.cuda;
           };
 

@@ -1,5 +1,6 @@
 {
   lib,
+  fetchFromGitHub,
   rustPlatform,
   pkg-config,
   openssl,
@@ -13,13 +14,21 @@
 }:
 
 let
+  # Match the CUTLASS revision requested by candle-flash-attn's build script.
+  cutlass = fetchFromGitHub {
+    owner = "NVIDIA";
+    repo = "cutlass";
+    rev = "7d49e6c7e2f8896c47f586706e67e1fb215529dc";
+    hash = "sha256-D/s7eYsa5l/mfx73tE4mnFcTQdYqGmXa9d9TCryw4e4=";
+  };
+
   # Merge split CUDA packages into a single tree so build scripts
   # (candle-kernels) can find headers, nvcc, and libraries together.
   cudaToolkit = symlinkJoin {
     name = "cuda-toolkit-joined";
     paths = with cudaPackages; [
       cuda_nvcc
-      cuda_cccl
+      cccl
       cuda_cudart
       libcublas
       libcublas.dev
@@ -46,7 +55,11 @@ rustPlatform.buildRustPackage {
 
   src = lib.cleanSource ./.;
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+    # All Candle crates share this Git source; one hash covers the workspace.
+    outputHashes."candle-core-0.1.0" = "sha256-S4ZX4Uv0oksBSafBWo/M8oXrmM7ZlXpP7ct/YA+Bxdk=";
+  };
 
   nativeBuildInputs = [
     pkg-config
@@ -75,10 +88,28 @@ rustPlatform.buildRustPackage {
   # weights that are not available inside the Nix build sandbox.
   doCheck = false;
 
-  env = lib.optionalAttrs cudaSupport {
+  env = {
+    # Override upstream's target-cpu=native: Nix outputs must not depend on
+    # the build host's CPU.
+    RUSTFLAGS = "-C force-frame-pointers=yes";
+  }
+  // lib.optionalAttrs cudaSupport {
     CUDA_ROOT = "${cudaToolkit}";
     CUDA_COMPUTE_CAP = cudaCapability;
   };
+
+  # cudaforge otherwise tries to clone CUTLASS during the sandboxed build.
+  # cargoSetupHook provides a writable copy of the vendored dependencies.
+  postPatch = lib.optionalString cudaSupport ''
+    substituteInPlace "$cargoDepsCopy/candle-flash-attn-0.11.0/build.rs" \
+      --replace-fail 'const CUTLASS_COMMIT: &str = "${cutlass.rev}";' "" \
+      --replace-fail '.with_cutlass(Some(CUTLASS_COMMIT))' \
+        '.include_path("${cutlass}/include").include_path("${cutlass}/tools/util/include").arg("-DUSE_CUTLASS")'
+  '';
+
+  preBuild = lib.optionalString cudaSupport ''
+    export CUDAFORGE_THREADS="$NIX_BUILD_CORES"
+  '';
 
   # cudarc loads CUDA libraries via dlopen at runtime; wrap binaries so
   # they can find both the toolkit libs and the NixOS driver stub.
